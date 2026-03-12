@@ -1,0 +1,14 @@
+docs
+
+.DS_Store
+
+.idea
+
+node_modules
+
+luria-api/dist
+
+luria-api/node_modules
+
+luria-api/test
+
