@@ -1,0 +1,146 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Queue, Worker } from 'bullmq';
+import type { AnalyzeJobData, QueueMode } from '../orchestration.types';
+
+@Injectable()
+export class AnalyzeQueueService {
+  private readonly logger = new Logger(AnalyzeQueueService.name);
+  private queue?: Queue<AnalyzeJobData>;
+  private worker?: Worker<AnalyzeJobData>;
+  private queueInitPromise?: Promise<boolean>;
+  private queueEnabled = false;
+  private processor?: (data: AnalyzeJobData) => Promise<void>;
+
+  async enqueue(
+    data: AnalyzeJobData,
+    processor: (data: AnalyzeJobData) => Promise<void>,
+  ): Promise<QueueMode> {
+    this.processor = processor;
+    const ready = await this.ensureQueue();
+    if (!ready || !this.queue) {
+      setImmediate(() => {
+        void processor(data);
+      });
+      return 'inline_fallback';
+    }
+
+    await this.queue.add('analyze', data, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+      removeOnComplete: 1000,
+      removeOnFail: 1000,
+    });
+    return 'bullmq';
+  }
+
+  isQueueEnabled(): boolean {
+    return this.queueEnabled;
+  }
+
+  async shutdown(): Promise<void> {
+    await this.safeCloseQueueResources();
+  }
+
+  private async ensureQueue(): Promise<boolean> {
+    if (this.queueEnabled) {
+      return true;
+    }
+    if (this.queueInitPromise) {
+      return this.queueInitPromise;
+    }
+
+    this.queueInitPromise = this.initQueue();
+    const ok = await this.queueInitPromise;
+    if (!ok) {
+      this.queueInitPromise = undefined;
+    }
+    return ok;
+  }
+
+  private async initQueue(): Promise<boolean> {
+    if (!this.processor) {
+      return false;
+    }
+
+    const host = process.env.REDIS_HOST ?? '127.0.0.1';
+    const port = Number(process.env.REDIS_PORT ?? 6379);
+    const password = process.env.REDIS_PASSWORD || undefined;
+    const concurrency = Number(process.env.ANALYZE_QUEUE_CONCURRENCY ?? 4);
+    const queueName = process.env.ANALYZE_QUEUE_NAME ?? 'analyze-jobs';
+    const connection = {
+      host,
+      port,
+      password,
+      maxRetriesPerRequest: null,
+    };
+
+    try {
+      this.queue = new Queue<AnalyzeJobData>(queueName, { connection });
+      this.worker = new Worker<AnalyzeJobData>(
+        queueName,
+        async (job) => {
+          if (!this.processor) {
+            return;
+          }
+          await this.processor(job.data);
+        },
+        {
+          connection,
+          concurrency,
+        },
+      );
+
+      this.worker.on('failed', (job, error) => {
+        const requestId = job?.data?.requestId;
+        const normalizedError =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(
+          `Worker failed job ${requestId ?? 'unknown'}.`,
+          normalizedError,
+        );
+      });
+
+      await this.queue.waitUntilReady();
+      await this.worker.waitUntilReady();
+      this.queueEnabled = true;
+      this.logger.log(
+        `Analyze queue enabled on ${host}:${port} (${queueName}).`,
+      );
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Queue unavailable, fallback to inline execution: ${message}`,
+      );
+      await this.safeCloseQueueResources();
+      this.queueEnabled = false;
+      return false;
+    }
+  }
+
+  private async safeCloseQueueResources(): Promise<void> {
+    if (this.worker) {
+      try {
+        await this.worker.close();
+      } catch {
+        // ignore shutdown error
+      }
+      this.worker = undefined;
+    }
+
+    if (this.queue) {
+      try {
+        await this.queue.close();
+      } catch {
+        // ignore shutdown error
+      }
+      this.queue = undefined;
+    }
+
+    this.queueEnabled = false;
+    this.queueInitPromise = undefined;
+  }
+}
