@@ -2,71 +2,141 @@ import { PromptBundle, stringifyPromptContext } from './prompt-types';
 
 export type IntentPromptContext = {
   query: string;
-  timeWindow: '24h' | '7d';
+  defaultTimeWindow: '24h' | '7d';
   preferredChain: string | null;
+  interactionTypes: readonly string[];
   taskTypes: readonly string[];
-  objectives: readonly string[];
-  sentiments: readonly string[];
-  focusAreas: readonly string[];
+  outputGoals: readonly string[];
+  tokenRegistry: Array<{
+    symbol: string;
+    aliases: string[];
+    chain: string;
+  }>;
   memo: {
     lastIntent: {
+      interactionType: string;
       taskType: string;
-      objective: string;
+      outputGoal: string;
+      timeWindow: string;
       entities: string[];
-      symbols: string[];
-      chains: string[];
-      focusAreas: string[];
+      needsClarification: boolean;
     };
-    lastResolvedTargets: unknown[];
+    lastResolvedTargets: Array<{
+      targetKey: string;
+      symbol: string;
+      chain: string;
+    }>;
   } | null;
   rules: string[];
-  examples: Array<{
-    query: string;
-    expectedTaskType: string;
-    expectedEntities: string[];
-  }>;
 };
 
 export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
   const requiredKeys = [
-    'userQuery',
-    'language',
+    'interactionType',
     'taskType',
-    'objective',
-    'sentimentBias',
+    'targets',
     'timeWindow',
-    'entities',
-    'symbols',
-    'chains',
-    'focusAreas',
-    'constraints',
+    'outputGoal',
+    'needsClarification',
   ];
-  const normalizedQuery = context.query.toLowerCase();
-  const hasComparisonCue =
-    normalizedQuery.includes('vs') ||
-    normalizedQuery.includes('versus') ||
-    normalizedQuery.includes('compare') ||
-    normalizedQuery.includes('比较') ||
-    normalizedQuery.includes('对比') ||
-    normalizedQuery.includes('谁更') ||
-    normalizedQuery.includes('哪个更');
+
+  const examples = [
+    {
+      input: {
+        userMessage: '那 ETH 呢？',
+        memo: {
+          lastIntent: {
+            taskType: 'single_asset',
+            outputGoal: 'strategy',
+            entities: ['BTC'],
+          },
+          lastResolvedTargets: [{ symbol: 'BTC', chain: 'bitcoin' }],
+        },
+      },
+      output: {
+        interactionType: 'follow_up',
+        taskType: 'single_asset',
+        targets: ['ETH'],
+        timeWindow: '24h',
+        outputGoal: 'strategy',
+        needsClarification: false,
+      },
+    },
+    {
+      input: {
+        userMessage: '分析 BTC、ETH、SOL，并分别给建议',
+        memo: null,
+      },
+      output: {
+        interactionType: 'new_query',
+        taskType: 'multi_asset',
+        targets: ['BTC', 'ETH', 'SOL'],
+        timeWindow: '24h',
+        outputGoal: 'strategy',
+        needsClarification: false,
+      },
+    },
+    {
+      input: {
+        userMessage: '对比 BTC 和 ETH 这周谁更强',
+        memo: null,
+      },
+      output: {
+        interactionType: 'new_query',
+        taskType: 'comparison',
+        targets: ['BTC', 'ETH'],
+        timeWindow: '7d',
+        outputGoal: 'comparison',
+        needsClarification: false,
+      },
+    },
+    {
+      input: {
+        userMessage: '看看接下来走势',
+        memo: null,
+      },
+      output: {
+        interactionType: 'new_query',
+        taskType: 'single_asset',
+        targets: [],
+        timeWindow: 'unspecified',
+        outputGoal: 'analysis',
+        needsClarification: true,
+      },
+    },
+  ];
 
   return {
     systemPrompt: [
-      'You are an intent parser for a crypto analysis system.',
-      'Return strict JSON only, no markdown and no extra keys.',
-      'Extract taskType, objective, sentiment bias, focus areas, entities, symbols, chains, and constraints.',
-      'Do not invent values outside allowed enums.',
-      'Comparison requires at least two concrete assets in entities/symbols.',
-      'If data is ambiguous, prefer single_asset over forced comparison.',
+      'You are the intent router for a crypto analysis workflow.',
+      'Your job is to understand the user message and output the minimum workflow-routing JSON.',
+      'You are NOT doing market analysis, planning, or report writing.',
+      'Return strict JSON only. No markdown. No prose. No extra keys.',
+      'Use only the allowed enum values.',
+      'targets must be short asset mentions or symbols only, not explanations.',
+      'If the user clearly wants a comparison between 2 or more assets, use taskType="comparison" and outputGoal="comparison".',
+      'If the user mentions multiple assets but wants separate analysis, use taskType="multi_asset".',
+      'If the request is missing a usable target or is too ambiguous to run safely, set needsClarification=true.',
+      'selection_reply should only be used when the message is clearly a candidate selection reply.',
+      'If time window is not explicit, you may use "unspecified" instead of guessing.',
     ].join(' '),
     userPrompt: [
-      'Extract intent JSON with fields exactly matching schema.',
-      `Required keys: ${requiredKeys.join(', ')}.`,
-      hasComparisonCue
-        ? 'Query has comparison cues. Use taskType="comparison" when two or more concrete assets are present.'
-        : 'No strong comparison cue detected. Prefer taskType="single_asset" unless evidence clearly indicates comparison.',
-      'Use context:',
+      'Return JSON with exactly these keys:',
+      requiredKeys.join(', '),
+      'Field rules:',
+      '- interactionType: new_query | follow_up | selection_reply',
+      '- taskType: single_asset | multi_asset | comparison',
+      '- targets: up to 5 asset mentions/symbols',
+      '- timeWindow: 24h | 7d | unspecified',
+      '- outputGoal: analysis | strategy | comparison',
+      '- needsClarification: boolean',
+      'Decision principles:',
+      ...context.rules.map((rule) => `- ${rule}`),
+      'Examples:',
+      stringifyPromptContext(examples),
+      'Available token registry for normalization hints:',
+      stringifyPromptContext(context.tokenRegistry),
+      'Current context:',
       stringifyPromptContext(context),
     ].join('\n'),
   };

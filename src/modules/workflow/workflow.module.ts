@@ -2,10 +2,13 @@ import { Module } from '@nestjs/common';
 import { MarketModule } from '../data/market/market.module';
 import { NewsModule } from '../data/news/news.module';
 import { TokenomicsModule } from '../data/tokenomics/tokenomics.module';
+import { FundamentalsModule } from '../data/fundamentals/fundamentals.module';
 import { TechnicalModule } from '../data/technical/technical.module';
 import { OnchainModule } from '../data/onchain/onchain.module';
 import { SecurityModule } from '../data/security/security.module';
 import { LiquidityModule } from '../data/liquidity/liquidity.module';
+import { SentimentModule } from '../data/sentiment/sentiment.module';
+import { CacheModule } from '../data/cache/cache.module';
 import { AlertsModule } from '../risk/alerts/alerts.module';
 import { StrategyModule } from '../strategy/strategy.module';
 import { LlmRuntimeService } from './runtime/llm-runtime.service';
@@ -22,10 +25,13 @@ import { IntentMemoService } from './state/intent-memo.service';
     MarketModule,
     NewsModule,
     TokenomicsModule,
+    FundamentalsModule,
     TechnicalModule,
     OnchainModule,
     SecurityModule,
     LiquidityModule,
+    SentimentModule,
+    CacheModule,
     AlertsModule,
     StrategyModule,
   ],
@@ -39,6 +45,6 @@ import { IntentMemoService } from './state/intent-memo.service';
     IntentMemoService,
     AnalysisWorkflowService,
   ],
-  exports: [AnalysisWorkflowService, IntentMemoService],
+  exports: [AnalysisWorkflowService, IntentMemoService, LlmRuntimeService],
 })
 export class WorkflowModule {}

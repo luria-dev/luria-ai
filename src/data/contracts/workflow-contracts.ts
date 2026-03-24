@@ -3,10 +3,12 @@ import type {
   AlertsSnapshot,
   AnalyzeIdentity,
   CexNetflowSnapshot,
+  FundamentalsSnapshot,
   LiquiditySnapshot,
   NewsSnapshot,
   PriceSnapshot,
   SecuritySnapshot,
+  SentimentSnapshot,
   StrategySnapshot,
   TechnicalSnapshot,
   TokenomicsSnapshot,
@@ -20,6 +22,8 @@ export const dataTypeSchema = z.enum([
   'onchain',
   'security',
   'liquidity',
+  'fundamentals',
+  'sentiment',
 ]);
 export type DataType = z.infer<typeof dataTypeSchema>;
 
@@ -30,7 +34,21 @@ export const intentObjectiveSchema = z.enum([
   'news_focus',
   'tokenomics_focus',
 ]);
-export const intentTaskTypeSchema = z.enum(['single_asset', 'comparison']);
+export const intentInteractionTypeSchema = z.enum([
+  'new_query',
+  'follow_up',
+  'selection_reply',
+]);
+export const intentTaskTypeSchema = z.enum([
+  'single_asset',
+  'multi_asset',
+  'comparison',
+]);
+export const intentOutputGoalSchema = z.enum([
+  'analysis',
+  'strategy',
+  'comparison',
+]);
 export const intentSentimentSchema = z.enum([
   'bullish',
   'bearish',
@@ -45,16 +63,31 @@ export const intentFocusAreaSchema = z.enum([
   'onchain_flow',
   'security_risk',
   'liquidity_quality',
+  'project_fundamentals',
 ]);
+
+export const intentLlmOutputSchema = z.object({
+  interactionType: intentInteractionTypeSchema,
+  taskType: intentTaskTypeSchema,
+  targets: z.array(z.string().min(1)).max(5).default([]),
+  timeWindow: z.enum(['24h', '7d', 'unspecified']),
+  outputGoal: intentOutputGoalSchema,
+  needsClarification: z.boolean(),
+});
+export type IntentLlmOutput = z.infer<typeof intentLlmOutputSchema>;
 
 export const intentOutputSchema = z.object({
   userQuery: z.string().min(1),
   language: z.enum(['zh', 'en']),
+  interactionType: intentInteractionTypeSchema,
   taskType: intentTaskTypeSchema,
+  outputGoal: intentOutputGoalSchema,
+  needsClarification: z.boolean(),
   objective: intentObjectiveSchema,
   sentimentBias: intentSentimentSchema,
   timeWindow: z.enum(['24h', '7d']),
   entities: z.array(z.string()).default([]),
+  entityMentions: z.array(z.string()).default([]),
   symbols: z.array(z.string()).default([]),
   chains: z.array(z.string()).default([]),
   focusAreas: z.array(intentFocusAreaSchema).min(1),
@@ -96,10 +129,12 @@ export type ExecutionPayload = {
   market: { price: PriceSnapshot };
   news: NewsSnapshot;
   tokenomics: TokenomicsSnapshot;
+  fundamentals: FundamentalsSnapshot;
   technical: TechnicalSnapshot;
   onchain: { cexNetflow: CexNetflowSnapshot };
   security: SecuritySnapshot;
   liquidity: LiquiditySnapshot;
+  sentiment: SentimentSnapshot;
 };
 
 export type ExecutionRoutingItem = {
@@ -120,12 +155,77 @@ export type ExecutionOutput = {
   asOf: string;
 };
 
+const analysisPriceLevelSchema = z.object({
+  price: z.number(),
+  source: z.enum([
+    'boll_lower',
+    'boll_upper',
+    'boll_middle',
+    'ma7',
+    'ma25',
+    'ma99',
+    'ath',
+    'atl',
+    'fib_0236',
+    'fib_0382',
+    'fib_0500',
+    'fib_0618',
+    'fib_0786',
+    'swing_high',
+    'swing_low',
+    'psychological',
+  ]),
+  label: z.string(),
+  strength: z.enum(['weak', 'medium', 'strong']),
+});
+
+const analysisStopLossReferenceSchema = z.object({
+  price: z.number(),
+  pctFromEntry: z.number(),
+  source: z.enum([
+    'atr',
+    'boll_lower',
+    'ma25',
+    'fib_0786',
+    'swing_low',
+    'fixed_pct',
+  ]),
+  label: z.string(),
+});
+
+const analysisTakeProfitLevelSchema = z.object({
+  price: z.number(),
+  pctFromEntry: z.number(),
+  label: z.string(),
+  strength: z.enum(['weak', 'medium', 'strong']),
+});
+
+const analysisTradingStrategySchema = z.object({
+  entryPrice: z.number().nullable(),
+  entryZone: z.string().nullable(),
+  supportLevels: z.array(analysisPriceLevelSchema),
+  resistanceLevels: z.array(analysisPriceLevelSchema),
+  stopLoss: analysisStopLossReferenceSchema.nullable(),
+  takeProfitLevels: z.array(analysisTakeProfitLevelSchema),
+  riskRewardRatio: z.number().nullable(),
+  riskLevel: z.enum(['low', 'medium', 'high']),
+  note: z.string(),
+});
+
 export const analysisOutputSchema = z.object({
+  verdict: z.enum(['BUY', 'SELL', 'HOLD', 'CAUTION', 'INSUFFICIENT_DATA']),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().min(1),
+  buyZone: z.string().nullable(),
+  sellZone: z.string().nullable(),
+  evidence: z.array(z.string()).min(1),
   summary: z.string().min(1),
   keyObservations: z.array(z.string()).min(1),
+  hardBlocks: z.array(z.string()).default([]),
   riskHighlights: z.array(z.string()).default([]),
   opportunityHighlights: z.array(z.string()).default([]),
   dataQualityNotes: z.array(z.string()).default([]),
+  tradingStrategy: analysisTradingStrategySchema.optional(),
 });
 export type AnalysisOutput = z.infer<typeof analysisOutputSchema>;
 
@@ -137,12 +237,39 @@ export const reportSectionSchema = z.object({
 export const reportOutputSchema = z.object({
   title: z.string().min(1),
   executiveSummary: z.string().min(1),
+  body: z.string().min(1),
   sections: z.array(reportSectionSchema).min(1),
   verdict: z.enum(['BUY', 'SELL', 'HOLD', 'CAUTION', 'INSUFFICIENT_DATA']),
   confidence: z.number().min(0).max(1),
   disclaimer: z.string().min(1),
 });
 export type ReportOutput = z.infer<typeof reportOutputSchema>;
+
+export const workflowNodeLlmStatusSchema = z.enum([
+  'success',
+  'retry_success',
+  'fallback',
+  'skipped',
+]);
+export type WorkflowNodeLlmStatus = z.infer<typeof workflowNodeLlmStatusSchema>;
+
+export const workflowNodeExecutionMetaSchema = z.object({
+  llmStatus: workflowNodeLlmStatusSchema,
+  attempts: z.number().int().min(0),
+  schemaCorrection: z.boolean(),
+  failureReason: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
+});
+export type WorkflowNodeExecutionMeta = z.infer<
+  typeof workflowNodeExecutionMetaSchema
+>;
+
+export type WorkflowNodeStatus = {
+  intent?: WorkflowNodeExecutionMeta;
+  planning?: WorkflowNodeExecutionMeta;
+  analysis?: WorkflowNodeExecutionMeta;
+  report?: WorkflowNodeExecutionMeta;
+};
 
 export type WorkflowRunResult = ExecutionPayload & {
   intent: IntentOutput;
@@ -152,4 +279,5 @@ export type WorkflowRunResult = ExecutionPayload & {
   strategy: StrategySnapshot;
   analysis: AnalysisOutput;
   report: ReportOutput;
+  nodeStatus: WorkflowNodeStatus;
 };

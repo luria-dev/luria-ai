@@ -9,46 +9,44 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AnalyzeOrchestratorService } from '../../core/orchestration/analyze-orchestrator.service';
-import { BootstrapDto } from '../../data/dto/analyze/bootstrap.dto';
-import { SelectDto } from '../../data/dto/analyze/select.dto';
+import { AnalyzeDto } from '../../data/dto/analyze/analyze.dto';
 
 @Controller('v1/analyze')
 export class AnalyzeController {
   constructor(private readonly orchestrator: AnalyzeOrchestratorService) {}
 
-  @Post('bootstrap')
-  bootstrap(@Body() body: BootstrapDto) {
-    return this.orchestrator.bootstrap(
-      body.query,
-      body.time_window ?? '24h',
-      body.preferred_chain ?? null,
-      body.thread_id ?? null,
-    );
+  @Post()
+  analyze(@Body() body: AnalyzeDto) {
+    return this.orchestrator.analyzeMessage({
+      message: body.message,
+      requestId: body.request_id ?? null,
+      threadId: body.thread_id ?? null,
+      timeWindow: body.time_window ?? '24h',
+      preferredChain: body.preferred_chain ?? null,
+    });
   }
 
-  @Post('select')
-  select(@Body() body: SelectDto) {
-    return this.orchestrator.select(
-      body.request_id,
-      body.candidate_id,
-      body.target_key ?? null,
-    );
-  }
-
-  @Get('result/:requestId')
-  result(@Param('requestId') requestId: string) {
-    return this.orchestrator.getResult(requestId);
-  }
-
-  @Sse('stream/:requestId')
+  @Sse(':requestId/stream')
   stream(@Param('requestId') requestId: string): Observable<MessageEvent> {
     return this.orchestrator.stream(requestId);
+  }
+
+  @Get(':requestId/result')
+  result(@Param('requestId') requestId: string) {
+    return this.orchestrator.getResult(requestId);
   }
 
   @Get('modules/readiness')
   getReadiness() {
     return {
       modules: this.orchestrator.getModuleReadiness(),
+    };
+  }
+
+  @Get('cache/metrics')
+  getCacheMetrics() {
+    return {
+      identitySearch: this.orchestrator.getSearchCacheMetrics(),
     };
   }
 }

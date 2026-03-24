@@ -3,7 +3,11 @@ import type {
   AnalyzeIdentity,
   StrategyVerdict,
 } from '../../data/contracts/analyze-contracts';
-import type { IntentOutput, WorkflowRunResult } from '../../data/contracts/workflow-contracts';
+import type {
+  IntentOutput,
+  WorkflowNodeExecutionMeta,
+  WorkflowRunResult,
+} from '../../data/contracts/workflow-contracts';
 
 export type RequestTarget = {
   targetKey: string;
@@ -26,6 +30,7 @@ export type RequestState = {
   selectedCandidateId?: string;
   identity?: AnalyzeIdentity;
   intentHint?: IntentOutput;
+  intentMeta?: WorkflowNodeExecutionMeta;
   errorCode?: 'NOT_FOUND' | 'REQUEST_NOT_FOUND' | 'INVALID_SELECTION';
   payload: Record<string, unknown>;
 };
@@ -43,6 +48,7 @@ export type AnalyzeJobData = {
   preferredChain: string | null;
   targets: AnalyzeJobTarget[];
   intentHint?: IntentOutput;
+  intentMeta?: WorkflowNodeExecutionMeta;
 };
 
 export type TargetPipeline = {
@@ -73,11 +79,21 @@ export type AnalyzeStreamEventName =
   | 'snapshot'
   | 'queued'
   | 'job_started'
+  | 'intent_started'
   | 'intent_done'
+  | 'target_resolution_started'
+  | 'target_resolution_done'
+  | 'selection_required'
+  | 'workflow_started'
+  | 'planning_started'
   | 'planning_done'
+  | 'executor_started'
   | 'executor_done'
+  | 'risk_strategy_started'
   | 'risk_strategy_done'
+  | 'analysis_started'
   | 'analysis_done'
+  | 'report_started'
   | 'report_done'
   | 'completed'
   | 'failed';

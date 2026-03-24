@@ -47,7 +47,10 @@ export function buildPlanningPrompts(
       'Select a minimal but sufficient evidence plan for the intent.',
       'Do not invent unsupported data types.',
       'Use only approved sources from sourceCatalog.',
-      'Keep security/liquidity/price as required in all plans.',
+      'Keep price, security, liquidity, and sentiment required in all plans.',
+      'Every requirements item must include dataType, required, priority, sourceHint, and reason.',
+      'required must be a boolean.',
+      'reason must be a non-empty string.',
       ...modeRules,
     ].join(' '),
     userPrompt: [
@@ -55,6 +58,7 @@ export function buildPlanningPrompts(
       `Required keys: ${requiredKeys.join(', ')}.`,
       stringifyPromptContext(context),
       'Output requirements[] and analysisQuestions[] only.',
+      'Each requirement object shape is: {"dataType":"price","required":true,"priority":"high","sourceHint":["coingecko"],"reason":"..."}',
       'Each requirement.sourceHint must be a subset of sourceCatalog[dataType].',
       isComparison
         ? 'For comparison, analysisQuestions must cover: upside drivers, downside drivers, risk blockers, and data-quality impact for fair cross-target ranking.'

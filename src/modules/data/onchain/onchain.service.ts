@@ -5,9 +5,44 @@ import {
   ExchangeNetflow,
 } from '../../../data/contracts/analyze-contracts';
 
-type CoinGlassResponse = {
-  data?: unknown;
+type SantimentResponse = {
+  data?: {
+    getMetric?: {
+      timeseriesData?: Array<{
+        datetime: string;
+        value: number;
+      }>;
+    };
+  };
+  errors?: Array<{
+    message: string;
+  }>;
 };
+
+type SantimentMetricResult = {
+  data: Array<{ datetime: string; value: number }>;
+  error?: string;
+};
+
+type SantimentWindow = {
+  from: string;
+  to: string;
+  interval: '5m' | '1h' | '6h' | '12h' | '1d';
+  degraded: boolean;
+  degradeReason?: string;
+};
+
+// Top exchanges for per-exchange metrics
+const TOP_EXCHANGES = [
+  'binance',
+  'coinbase',
+  'kraken',
+  'okx',
+  'bybit',
+  'bitget',
+  'huobi',
+  'gate',
+];
 
 @Injectable()
 export class OnchainService {
@@ -22,10 +57,11 @@ export class OnchainService {
     identity: AnalyzeIdentity,
     window: '24h' | '7d',
   ): Promise<CexNetflowSnapshot> {
-    const coinglass = await this.fetchFromCoinGlass(identity, window);
-    if (coinglass) {
-      return coinglass;
+    const result = await this.fetchFromSantiment(identity, window);
+    if (result) {
+      return result;
     }
+
     return {
       window,
       inflowUsd: null,
@@ -40,229 +76,369 @@ export class OnchainService {
     };
   }
 
-  private async fetchFromCoinGlass(
+  private async fetchFromSantiment(
     identity: AnalyzeIdentity,
     window: '24h' | '7d',
   ): Promise<CexNetflowSnapshot | null> {
-    const apiKey = process.env.COINGLASS_API_KEY;
+    const apiKey = process.env.SANTIMENT_ACCESS_KEY;
     if (!apiKey?.trim()) {
+      this.logger.warn('SANTIMENT_ACCESS_KEY not configured');
       return null;
     }
 
-    const baseUrl =
-      process.env.COINGLASS_API_BASE_URL ??
-      'https://open-api-v4.coinglass.com/api';
-    const timeoutMs = Number(process.env.COINGLASS_TIMEOUT_MS ?? 5000);
-    const symbol = this.toCoinGlassSymbol(identity.symbol);
-    const interval = window === '24h' ? '1h' : '24h';
-    const limit = window === '24h' ? '24' : '7';
-    const path = process.env.COINGLASS_NETFLOW_PATH ?? '/futures/netflow-list';
-    const url =
-      `${baseUrl}${path}` +
-      `?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${encodeURIComponent(
-        limit,
-      )}`;
+    const endpoint =
+      process.env.SANTIMENT_GRAPHQL_URL ?? 'https://api.santiment.net/graphql';
+    const timeoutMs = Number(process.env.SANTIMENT_TIMEOUT_MS ?? 7000);
+    const slug = this.resolveSantimentSlug(identity.symbol);
+    const primaryWindow = this.buildPrimaryWindow(window);
+    const primary = await this.fetchSantimentWindow(
+      endpoint,
+      apiKey.trim(),
+      timeoutMs,
+      slug,
+      primaryWindow,
+    );
+    if (primary) {
+      return this.toSnapshot(window, primary, primaryWindow);
+    }
+
+    const fallbackWindow = this.buildHistoricalFallbackWindow();
+    const fallback = await this.fetchSantimentWindow(
+      endpoint,
+      apiKey.trim(),
+      timeoutMs,
+      slug,
+      fallbackWindow,
+    );
+    if (fallback) {
+      this.logger.warn(
+        `Santiment exchange flow for ${identity.symbol} fell back to delayed historical window ${fallbackWindow.from} -> ${fallbackWindow.to}.`,
+      );
+      return this.toSnapshot(window, fallback, fallbackWindow);
+    }
+
+    return null;
+  }
+
+  private buildPrimaryWindow(window: '24h' | '7d'): SantimentWindow {
+    return window === '24h'
+      ? {
+          from: 'utc_now-24h',
+          to: 'utc_now',
+          interval: '6h',
+          degraded: false,
+        }
+      : {
+          from: 'utc_now-7d',
+          to: 'utc_now',
+          interval: '12h',
+          degraded: false,
+        };
+  }
+
+  private buildHistoricalFallbackWindow(): SantimentWindow {
+    return {
+      from: 'utc_now-60d',
+      to: 'utc_now-30d',
+      interval: '1d',
+      degraded: true,
+      degradeReason: 'CEX_NETFLOW_DELAYED_30D_FALLBACK',
+    };
+  }
+
+  private async fetchSantimentWindow(
+    endpoint: string,
+    apiKey: string,
+    timeoutMs: number,
+    slug: string,
+    window: SantimentWindow,
+  ): Promise<{
+    inflowUsd: number | null;
+    outflowUsd: number | null;
+    netflowUsd: number | null;
+    exchanges: ExchangeNetflow[];
+  } | null> {
+    const [inflowResult, outflowResult] = await Promise.all([
+      this.fetchMetric(
+        endpoint,
+        apiKey,
+        timeoutMs,
+        'exchange_inflow_usd',
+        slug,
+        window.from,
+        window.to,
+        window.interval,
+      ),
+      this.fetchMetric(
+        endpoint,
+        apiKey,
+        timeoutMs,
+        'exchange_outflow_usd',
+        slug,
+        window.from,
+        window.to,
+        window.interval,
+      ),
+    ]);
+
+    if (inflowResult.error || outflowResult.error) {
+      const errorMsg = inflowResult.error || outflowResult.error;
+      this.logger.warn(
+        `Santiment exchange flow blocked for ${slug} in window ${window.from} -> ${window.to}: ${errorMsg}`,
+      );
+      return null;
+    }
+
+    if (inflowResult.data.length === 0 && outflowResult.data.length === 0) {
+      this.logger.warn(
+        `No exchange flow data from Santiment for ${slug} in window ${window.from} -> ${window.to}`,
+      );
+      return null;
+    }
+
+    const inflowUsd = this.sumTimeseries(inflowResult.data);
+    const outflowUsd = this.sumTimeseries(outflowResult.data);
+    const netflowUsd =
+      inflowUsd !== null && outflowUsd !== null
+        ? this.round(inflowUsd - outflowUsd, 2)
+        : null;
+
+    const exchanges = await this.fetchPerExchangeMetrics(
+      endpoint,
+      apiKey,
+      timeoutMs,
+      slug,
+      window.from,
+      window.to,
+      window.interval,
+    );
+
+    return {
+      inflowUsd: this.round(inflowUsd, 2),
+      outflowUsd: this.round(outflowUsd, 2),
+      netflowUsd,
+      exchanges: exchanges
+        .sort(
+          (a, b) => Math.abs(b.netflowUsd ?? 0) - Math.abs(a.netflowUsd ?? 0),
+        )
+        .slice(0, 8),
+    };
+  }
+
+  private toSnapshot(
+    window: '24h' | '7d',
+    data: {
+      inflowUsd: number | null;
+      outflowUsd: number | null;
+      netflowUsd: number | null;
+      exchanges: ExchangeNetflow[];
+    },
+    sourceWindow: SantimentWindow,
+  ): CexNetflowSnapshot {
+    return {
+      window,
+      inflowUsd: data.inflowUsd,
+      outflowUsd: data.outflowUsd,
+      netflowUsd: data.netflowUsd,
+      signal: this.toNetflowSignal(data.netflowUsd),
+      exchanges: data.exchanges,
+      asOf: new Date().toISOString(),
+      sourceUsed: ['santiment'],
+      degraded: sourceWindow.degraded,
+      degradeReason: sourceWindow.degradeReason,
+    };
+  }
+
+  private async fetchMetric(
+    endpoint: string,
+    apiKey: string,
+    timeoutMs: number,
+    metric: string,
+    slug: string,
+    from: string,
+    to: string,
+    interval: '5m' | '1h' | '6h' | '12h' | '1d',
+  ): Promise<SantimentMetricResult> {
+    const query = `
+      query ExchangeFlow($metric: String!, $slug: String!, $from: DateTime!, $to: DateTime!, $interval: interval!) {
+        getMetric(metric: $metric) {
+          timeseriesData(slug: $slug, from: $from, to: $to, interval: $interval) {
+            datetime
+            value
+          }
+        }
+      }
+    `;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const response = await fetch(url, {
+      const response = await fetch(endpoint, {
+        method: 'POST',
         signal: controller.signal,
         headers: {
-          'CG-API-KEY': apiKey.trim(),
+          'Content-Type': 'application/json',
+          Authorization: `Apikey ${apiKey}`,
         },
+        body: JSON.stringify({
+          query,
+          variables: { metric, slug, from, to, interval },
+        }),
       });
+
       if (!response.ok) {
-        this.logger.warn(
-          `CoinGlass netflow fetch failed (${response.status}) for ${identity.symbol}.`,
-        );
-        return null;
-      }
-      const body = (await response.json()) as CoinGlassResponse;
-      const exchanges = this.parseExchangeRows(body.data);
-      if (exchanges.length === 0) {
-        return null;
+        return { data: [], error: `HTTP ${response.status}` };
       }
 
-      const inflowUsd = this.round(
-        exchanges.reduce((sum, item) => sum + (item.inflowUsd ?? 0), 0),
-        2,
-      );
-      const outflowUsd = this.round(
-        exchanges.reduce((sum, item) => sum + (item.outflowUsd ?? 0), 0),
-        2,
-      );
-      const netflowUsd =
-        inflowUsd !== null && outflowUsd !== null
-          ? this.round(inflowUsd - outflowUsd, 2)
-          : null;
+      const payload: SantimentResponse = await response.json();
 
-      return {
-        window,
-        inflowUsd,
-        outflowUsd,
-        netflowUsd,
-        signal: this.toNetflowSignal(netflowUsd),
-        exchanges: exchanges
-          .sort(
-            (a, b) => Math.abs(b.netflowUsd ?? 0) - Math.abs(a.netflowUsd ?? 0),
-          )
-          .slice(0, 8),
-        asOf: new Date().toISOString(),
-        sourceUsed: ['coinglass'],
-        degraded: false,
-      };
+      if (payload.errors?.length) {
+        return { data: [], error: payload.errors[0].message };
+      }
+
+      return { data: payload.data?.getMetric?.timeseriesData ?? [] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `CoinGlass netflow unavailable for ${identity.symbol}: ${message}`,
-      );
-      return null;
+      return { data: [], error: message };
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private parseExchangeRows(data: unknown): ExchangeNetflow[] {
-    const rows = this.extractRows(data);
-    const parsed: ExchangeNetflow[] = [];
-    for (const row of rows) {
-      if (!row || typeof row !== 'object') {
-        continue;
-      }
-      const obj = row as Record<string, unknown>;
-      const exchange = this.toExchangeName(obj);
-      if (!exchange) {
-        continue;
-      }
-      const inflowUsd = this.pickNumber(obj, [
-        'inflow',
-        'inflowUsd',
-        'inflow_usd',
-        'in',
-      ]);
-      const outflowUsd = this.pickNumber(obj, [
-        'outflow',
-        'outflowUsd',
-        'outflow_usd',
-        'out',
-      ]);
-      const rawNet = this.pickNumber(obj, [
-        'netflow',
-        'netFlow',
-        'netflowUsd',
-        'net',
-      ]);
-      const netflowUsd =
-        rawNet !== null
-          ? rawNet
-          : inflowUsd !== null && outflowUsd !== null
-            ? this.round(inflowUsd - outflowUsd, 2)
-            : null;
+  private async fetchPerExchangeMetrics(
+    endpoint: string,
+    apiKey: string,
+    timeoutMs: number,
+    slug: string,
+    from: string,
+    to: string,
+    interval: '5m' | '1h' | '6h' | '12h' | '1d',
+  ): Promise<ExchangeNetflow[]> {
+    const exchanges: ExchangeNetflow[] = [];
 
-      parsed.push({
-        exchange,
-        inflowUsd: this.round(inflowUsd, 2),
-        outflowUsd: this.round(outflowUsd, 2),
-        netflowUsd: this.round(netflowUsd, 2),
-      });
-    }
-    return parsed;
-  }
-
-  private extractRows(input: unknown): unknown[] {
-    if (!input) {
-      return [];
-    }
-    if (Array.isArray(input)) {
-      return input;
-    }
-    if (typeof input === 'object') {
-      const obj = input as Record<string, unknown>;
-      const candidates = [obj.items, obj.list, obj.rows, obj.result, obj.data];
-      for (const candidate of candidates) {
-        if (Array.isArray(candidate)) {
-          return candidate;
-        }
-      }
-      // CoinGlass sometimes returns map keyed by exchange.
-      const entries = Object.entries(obj);
-      if (
-        entries.length > 0 &&
-        entries.every(([key]) => typeof key === 'string')
-      ) {
-        return entries.map(([key, value]) =>
-          typeof value === 'object' && value !== null
-            ? { exchange: key, ...(value as Record<string, unknown>) }
-            : { exchange: key, value },
-        );
-      }
-    }
-    return [];
-  }
-
-  private toExchangeName(row: Record<string, unknown>): string | null {
-    const candidates = [
-      row.exchange,
-      row.exchangeName,
-      row.exchange_name,
-      row.name,
-      row.platform,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === 'string' && candidate.trim()) {
-        return candidate.trim().toLowerCase();
-      }
-    }
-    return null;
-  }
-
-  private pickNumber(
-    row: Record<string, unknown>,
-    keys: string[],
-  ): number | null {
-    for (const key of keys) {
-      const value = row[key];
-      const parsed = this.toNumber(value);
-      if (parsed !== null) {
-        return parsed;
-      }
-      if (Array.isArray(value) && value.length > 0) {
-        for (let i = value.length - 1; i >= 0; i -= 1) {
-          const nested = this.toNumber(value[i]);
-          if (nested !== null) {
-            return nested;
-          }
-          if (typeof value[i] === 'object' && value[i] !== null) {
-            const deep = this.pickNumber(
-              value[i] as Record<string, unknown>,
-              keys,
-            );
-            if (deep !== null) {
-              return deep;
+    // Fetch netflow per exchange in parallel (using exchange_balance_per_exchange)
+    const results = await Promise.all(
+      TOP_EXCHANGES.map(async (exchange) => {
+        const query = `
+          query ExchangeFlowPerExchange($metric: String!, $slug: String!, $owner: String!, $from: DateTime!, $to: DateTime!, $interval: interval!) {
+            getMetric(metric: $metric) {
+              timeseriesData(
+                selector: { slug: $slug, owner: $owner, label: "centralized_exchange" }
+                from: $from
+                to: $to
+                interval: $interval
+              ) {
+                datetime
+                value
+              }
             }
           }
+        `;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Apikey ${apiKey}`,
+            },
+            body: JSON.stringify({
+              query,
+              variables: {
+                metric: 'exchange_balance_per_exchange',
+                slug,
+                owner: exchange,
+                from,
+                to,
+                interval,
+              },
+            }),
+          });
+
+          if (!response.ok) {
+            return { exchange, balance: null };
+          }
+
+          const payload: SantimentResponse = await response.json();
+          const data = payload.data?.getMetric?.timeseriesData ?? [];
+          const total = this.sumTimeseries(data);
+          return { exchange, balance: total };
+        } catch {
+          return { exchange, balance: null };
+        } finally {
+          clearTimeout(timeout);
         }
+      }),
+    );
+
+    for (const result of results) {
+      if (result.balance !== null) {
+        exchanges.push({
+          exchange: result.exchange,
+          inflowUsd: null,
+          outflowUsd: null,
+          netflowUsd: this.round(result.balance, 2),
+        });
       }
     }
-    return null;
+
+    return exchanges;
   }
 
-  private toNumber(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
+  private sumTimeseries(
+    data: Array<{ datetime: string; value: number }>,
+  ): number | null {
+    if (data.length === 0) {
+      return null;
     }
-    if (typeof value === 'string') {
-      const normalized = value.replace(/,/g, '').trim();
-      if (!normalized) {
-        return null;
-      }
-      const parsed = Number(normalized);
-      if (Number.isFinite(parsed)) {
-        return parsed;
+    const sum = data.reduce((acc, item) => acc + (item.value ?? 0), 0);
+    return sum;
+  }
+
+  private resolveSantimentSlug(symbol: string): string {
+    const rawMap = process.env.SANTIMENT_SLUG_MAP;
+    if (rawMap?.trim()) {
+      try {
+        const parsed = JSON.parse(rawMap) as Record<string, unknown>;
+        const mapped = parsed[symbol.toUpperCase()];
+        if (typeof mapped === 'string' && mapped.trim()) {
+          return mapped.trim();
+        }
+      } catch {
+        // ignore invalid map
       }
     }
-    return null;
+
+    const normalized = symbol.trim().toLowerCase();
+    const builtinMap: Record<string, string> = {
+      btc: 'bitcoin',
+      eth: 'ethereum',
+      usdt: 'tether',
+      bnb: 'binance-coin',
+      sol: 'solana',
+      usdc: 'usd-coin',
+      xrp: 'ripple',
+      ada: 'cardano',
+      avax: 'avalanche',
+      doge: 'dogecoin',
+      dot: 'polkadot',
+      matic: 'polygon',
+      link: 'chainlink',
+      uni: 'uniswap',
+      atom: 'cosmos',
+      etc: 'ethereum-classic',
+      xlm: 'stellar',
+      ltc: 'litecoin',
+      bch: 'bitcoin-cash',
+      near: 'near-protocol',
+    };
+
+    return builtinMap[normalized] ?? normalized;
   }
 
   private round(value: number | null, digits: number): number | null {
@@ -285,14 +461,5 @@ export class OnchainService {
       return 'sell_pressure';
     }
     return 'neutral';
-  }
-
-  private toCoinGlassSymbol(symbol: string): string {
-    const upper = symbol.trim().toUpperCase();
-    const mapping: Record<string, string> = {
-      WETH: 'ETH',
-      WBTC: 'BTC',
-    };
-    return mapping[upper] ?? upper;
   }
 }

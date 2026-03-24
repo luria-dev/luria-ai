@@ -3,30 +3,53 @@ import {
   AnalyzeIdentity,
   LiquiditySnapshot,
 } from '../../../data/contracts/analyze-contracts';
+import { TOKEN_REGISTRY } from '../market/native-tokens';
 
-type CmcDexPair = {
-  pairAddress?: string;
-  quoteToken?: {
-    symbol?: string;
+type GeckoTerminalResponse = {
+  data?: {
+    attributes?: {
+      reserve_in_usd?: string;
+      volume_usd?: {
+        h24?: string;
+      };
+      relationships?: {
+        quote_token?: {
+          data?: {
+            id?: string;
+          };
+        };
+      };
+    };
   };
-  quote_token_symbol?: string;
-  liquidity?: {
-    usd?: number | string;
-  };
-  liquidity_usd?: number | string;
-  volume?: {
-    h24?: number | string;
-  };
-  volume_24h?: number | string;
-};
-
-type CmcDexResponse = {
-  data?: unknown;
 };
 
 type LiquiditySample = {
   atMs: number;
   liquidityUsd: number;
+};
+
+type CoinGeckoTickerResponse = {
+  tickers?: Array<{
+    target?: string;
+    bid_ask_spread_percentage?: unknown;
+    converted_volume?: {
+      usd?: unknown;
+    };
+  }>;
+};
+
+type NormalizedLiquidityData = {
+  quoteToken: LiquiditySnapshot['quoteToken'];
+  hasUsdtOrUsdcPair: boolean;
+  liquidityUsd: number | null;
+  volume24hUsd: number | null;
+  priceImpact1kPct: number | null;
+  rugpullRiskSignal: LiquiditySnapshot['rugpullRiskSignal'];
+  warnings: string[];
+  sourceUsed: LiquiditySnapshot['sourceUsed'];
+  degradeReason?: string;
+  isLpLocked: boolean | null;
+  lpLockRatioPct: number | null;
 };
 
 @Injectable()
@@ -42,28 +65,21 @@ export class LiquidityService {
   }
 
   async fetchSnapshot(identity: AnalyzeIdentity): Promise<LiquiditySnapshot> {
-    const pairs = await this.fetchCmcDexPairs(identity);
-    const pair = this.pickBestPair(pairs);
-    if (!pair) {
+    const nowMs = Date.now();
+    const pairKey = this.buildLiquidityKey(identity);
+
+    const nativeProxy = this.shouldUseNativeProxy(identity)
+      ? await this.fetchNativeAssetProxy(identity)
+      : null;
+    const poolData = nativeProxy ?? (await this.fetchGeckoTerminalPool(identity));
+    if (!poolData) {
       return this.buildUnavailableSnapshot('LIQUIDITY_SOURCE_NOT_FOUND');
     }
 
-    const nowMs = Date.now();
-    const pairKey = `${this.normalizeChain(identity.chain)}:${identity.tokenAddress.toLowerCase()}`;
-    const liquidityUsd = this.toNullableNumber(
-      pair.liquidity?.usd ?? pair.liquidity_usd,
-    );
-    const volume24hUsd = this.toNullableNumber(
-      pair.volume?.h24 ?? pair.volume_24h,
-    );
-    const quoteSymbol = (
-      pair.quoteToken?.symbol ??
-      pair.quote_token_symbol ??
-      'OTHER'
-    ).toUpperCase();
-    const quoteToken: LiquiditySnapshot['quoteToken'] =
-      quoteSymbol === 'USDT' || quoteSymbol === 'USDC' ? quoteSymbol : 'OTHER';
-    const hasUsdtOrUsdcPair = quoteToken === 'USDT' || quoteToken === 'USDC';
+    const liquidityUsd = poolData.liquidityUsd;
+    const volume24hUsd = poolData.volume24hUsd;
+    const quoteToken = poolData.quoteToken;
+    const hasUsdtOrUsdcPair = poolData.hasUsdtOrUsdcPair;
 
     const liquidity1hAgoUsd = this.pickOneHourAgoLiquidity(pairKey, nowMs);
     const liquidityDrop1hPct = this.calculateLiquidityDropPct(
@@ -77,7 +93,7 @@ export class LiquidityService {
       typeof liquidityDrop1hPct === 'number' &&
       liquidityDrop1hPct <= dropThresholdPct;
 
-    const warnings: string[] = [];
+    const warnings: string[] = [...poolData.warnings];
     if (!hasUsdtOrUsdcPair) {
       warnings.push(
         'Quote token is not USDT/USDC; liquidity quality may be lower.',
@@ -99,15 +115,21 @@ export class LiquidityService {
       liquidityUsd,
       liquidityDrop1hPct,
       withdrawalRiskFlag,
+      sourceUsed: poolData.sourceUsed,
+      suggested: poolData.rugpullRiskSignal,
     });
-    const priceImpact1kPct = this.estimatePriceImpact1kPct(liquidityUsd);
+    const priceImpact1kPct =
+      poolData.priceImpact1kPct ?? this.estimatePriceImpact1kPct(liquidityUsd);
+
+    const isLpLocked = poolData.isLpLocked;
+    const lpLockRatioPct = poolData.lpLockRatioPct;
 
     const degraded = liquidityUsd === null || volume24hUsd === null;
     const degradeReason =
       liquidityUsd === null
-        ? 'LIQUIDITY_USD_MISSING'
+        ? poolData.degradeReason ?? 'LIQUIDITY_USD_MISSING'
         : volume24hUsd === null
-          ? 'LIQUIDITY_VOLUME_24H_MISSING'
+          ? poolData.degradeReason ?? 'LIQUIDITY_VOLUME_24H_MISSING'
           : undefined;
 
     if (typeof liquidityUsd === 'number') {
@@ -123,115 +145,261 @@ export class LiquidityService {
       withdrawalRiskFlag,
       volume24hUsd,
       priceImpact1kPct,
-      isLpLocked: null,
-      lpLockRatioPct: null,
+      isLpLocked,
+      lpLockRatioPct,
       rugpullRiskSignal,
       warnings,
       asOf: new Date(nowMs).toISOString(),
-      sourceUsed: 'cmc_dex',
+      sourceUsed: poolData.sourceUsed,
       degraded,
       degradeReason,
     };
   }
 
-  private async fetchCmcDexPairs(
+  private async fetchGeckoTerminalPool(
     identity: AnalyzeIdentity,
-  ): Promise<CmcDexPair[]> {
-    const baseUrl =
-      process.env.COINMARKETCAP_API_BASE_URL ??
-      'https://pro-api.coinmarketcap.com';
-    const path =
-      process.env.CMC_DEX_PAIRS_PATH ?? '/v4/dex/pairs/quotes/latest';
-    const timeoutMs = Number(process.env.COINMARKETCAP_TIMEOUT_MS ?? 5000);
-    const chain = this.normalizeChain(identity.chain);
+  ): Promise<NormalizedLiquidityData | null> {
+    const network = this.mapChainToGeckoNetwork(identity.chain);
+    if (!network) {
+      this.logger.warn(
+        `Chain ${identity.chain} not supported by GeckoTerminal`,
+      );
+      return null;
+    }
 
-    const template = process.env.CMC_DEX_PAIRS_URL_TEMPLATE;
-    const url = template?.trim()
-      ? template
-          .replaceAll('{chain}', encodeURIComponent(chain))
-          .replaceAll(
-            '{tokenAddress}',
-            encodeURIComponent(identity.tokenAddress),
-          )
-      : `${baseUrl}${path}?network=${encodeURIComponent(chain)}&contract_address=${encodeURIComponent(identity.tokenAddress)}`;
+    const poolAddress = await this.findTopPoolAddress(
+      network,
+      identity.tokenAddress,
+    );
+    if (!poolAddress) {
+      return null;
+    }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const headers: Record<string, string> = {};
-      const apiKey = process.env.COINMARKETCAP_API_KEY;
-      if (apiKey?.trim()) {
-        headers['X-CMC_PRO_API_KEY'] = apiKey.trim();
-      }
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
+    try {
+      const url = `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${poolAddress}`;
       const response = await fetch(url, {
         signal: controller.signal,
-        headers,
+        headers: { Accept: 'application/json' },
       });
+
       if (!response.ok) {
         this.logger.warn(
-          `CMC DEX pair fetch failed (${response.status}) for ${chain}:${identity.tokenAddress}.`,
+          `GeckoTerminal pool query failed (${response.status}) for ${identity.symbol}`,
         );
-        return [];
+        return null;
       }
 
-      const body = (await response.json()) as CmcDexResponse;
-      return this.extractPairs(body.data);
+      const payload = (await response.json()) as GeckoTerminalResponse;
+      const attrs = payload.data?.attributes;
+      if (!attrs) {
+        return null;
+      }
+
+      const liquidityUsd = this.parseGeckoNumber(attrs.reserve_in_usd);
+      const volume24hUsd = this.parseGeckoNumber(attrs.volume_usd?.h24);
+
+      const quoteTokenId = attrs.relationships?.quote_token?.data?.id;
+      const quoteSymbol = quoteTokenId?.split('_').pop() ?? null;
+      const quoteToken: LiquiditySnapshot['quoteToken'] =
+        quoteSymbol?.toUpperCase() === 'USDT'
+          ? 'USDT'
+          : quoteSymbol?.toUpperCase() === 'USDC'
+            ? 'USDC'
+            : 'OTHER';
+
+      return {
+        quoteToken,
+        hasUsdtOrUsdcPair: quoteToken === 'USDT' || quoteToken === 'USDC',
+        liquidityUsd,
+        volume24hUsd,
+        priceImpact1kPct: null,
+        rugpullRiskSignal: 'unknown',
+        warnings: [],
+        sourceUsed: 'geckoterminal',
+        isLpLocked: null,
+        lpLockRatioPct: null,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `CMC DEX pair fetch unavailable for ${chain}:${identity.tokenAddress}: ${message}`,
-      );
-      return [];
+      this.logger.warn(`GeckoTerminal request failed: ${message}`);
+      return null;
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private extractPairs(data: unknown): CmcDexPair[] {
-    if (!data) {
-      return [];
-    }
-    if (Array.isArray(data)) {
-      return data.filter((item): item is CmcDexPair =>
-        Boolean(item && typeof item === 'object'),
-      );
-    }
-    if (typeof data === 'object') {
-      const obj = data as Record<string, unknown>;
-      const candidates = [obj.pairs, obj.items, obj.list, obj.rows, obj.data];
-      for (const candidate of candidates) {
-        if (Array.isArray(candidate)) {
-          return candidate.filter((item): item is CmcDexPair =>
-            Boolean(item && typeof item === 'object'),
-          );
-        }
-      }
-      if (
-        'liquidity' in obj ||
-        'liquidity_usd' in obj ||
-        'volume' in obj ||
-        'volume_24h' in obj
-      ) {
-        return [obj as CmcDexPair];
-      }
-    }
-    return [];
-  }
-
-  private pickBestPair(pairs: CmcDexPair[]): CmcDexPair | null {
-    if (pairs.length === 0) {
+  private async fetchNativeAssetProxy(
+    identity: AnalyzeIdentity,
+  ): Promise<NormalizedLiquidityData | null> {
+    const coinId = this.resolveCoinGeckoCoinId(identity);
+    if (!coinId) {
       return null;
     }
-    const scored = pairs
-      .map((pair) => ({
-        pair,
-        liquidity:
-          this.toNullableNumber(pair.liquidity?.usd ?? pair.liquidity_usd) ??
-          -1,
-      }))
-      .sort((a, b) => b.liquidity - a.liquidity);
-    return scored[0]?.pair ?? null;
+
+    const baseUrl = this.getCoinGeckoBaseUrl();
+    const timeoutMs = this.getCoinGeckoTimeoutMs();
+    const params = new URLSearchParams({
+      include_exchange_logo: 'false',
+      page: '1',
+      order: 'volume_desc',
+    });
+    const response = await this.fetchJson<CoinGeckoTickerResponse>(
+      `${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers?${params.toString()}`,
+      timeoutMs,
+      this.buildCoinGeckoHeaders(),
+    );
+    if (!response || !Array.isArray(response.tickers)) {
+      return null;
+    }
+
+    const tickers = response.tickers
+      .map((ticker) => {
+        const target = (ticker.target ?? '').trim().toUpperCase();
+        const volumeUsd = this.toNumber(ticker.converted_volume?.usd);
+        const spreadPct = this.toNumber(ticker.bid_ask_spread_percentage);
+        return {
+          target,
+          volumeUsd,
+          spreadPct,
+          stable:
+            target === 'USDT' || target === 'USDC' || target === 'USD',
+        };
+      })
+      .filter((ticker) => ticker.volumeUsd !== null && ticker.volumeUsd > 0);
+
+    if (tickers.length === 0) {
+      return null;
+    }
+
+    const ranked = tickers.sort((a, b) => (b.volumeUsd ?? 0) - (a.volumeUsd ?? 0));
+    const preferred = ranked.filter((ticker) => ticker.stable);
+    const selected = (preferred.length > 0 ? preferred : ranked).slice(0, 10);
+    const topDepth = selected.slice(0, 5);
+    const liquidityUsd = this.round(
+      topDepth.reduce((sum, ticker) => sum + (ticker.volumeUsd ?? 0), 0),
+      2,
+    );
+    const volume24hUsd = this.round(
+      selected.reduce((sum, ticker) => sum + (ticker.volumeUsd ?? 0), 0),
+      2,
+    );
+    const spreadSamples = selected
+      .map((ticker) => ticker.spreadPct)
+      .filter((value): value is number => value !== null && value >= 0);
+    const avgSpreadPct =
+      spreadSamples.length > 0
+        ? spreadSamples.reduce((sum, value) => sum + value, 0) /
+          spreadSamples.length
+        : null;
+    const quoteToken: LiquiditySnapshot['quoteToken'] =
+      preferred.some((ticker) => ticker.target === 'USDT')
+        ? 'USDT'
+        : preferred.some((ticker) => ticker.target === 'USDC')
+          ? 'USDC'
+          : 'OTHER';
+
+    const warnings = [
+      'Native-asset liquidity uses CoinGecko centralized-exchange ticker volume proxy instead of on-chain pool reserve.',
+    ];
+    if (preferred.length === 0) {
+      warnings.push(
+        'No dominant USDT/USDC market was found in the top ticker set.',
+      );
+    }
+    if (avgSpreadPct !== null && avgSpreadPct > 0.2) {
+      warnings.push(
+        `Average bid/ask spread is elevated at ${avgSpreadPct.toFixed(3)}%.`,
+      );
+    }
+
+    return {
+      quoteToken,
+      hasUsdtOrUsdcPair: preferred.some(
+        (ticker) => ticker.target === 'USDT' || ticker.target === 'USDC',
+      ),
+      liquidityUsd,
+      volume24hUsd,
+      priceImpact1kPct:
+        avgSpreadPct !== null ? Number(avgSpreadPct.toFixed(4)) : null,
+      rugpullRiskSignal: 'low',
+      warnings,
+      sourceUsed: 'coingecko',
+      isLpLocked: null,
+      lpLockRatioPct: null,
+      degradeReason:
+        liquidityUsd === null
+          ? 'LIQUIDITY_PROXY_VOLUME_MISSING'
+          : volume24hUsd === null
+            ? 'LIQUIDITY_PROXY_VOLUME_24H_MISSING'
+            : undefined,
+    };
+  }
+
+  private async findTopPoolAddress(
+    network: string,
+    tokenAddress: string,
+  ): Promise<string | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const url = `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress}/pools`;
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as {
+        data?: Array<{ id?: string; attributes?: { reserve_in_usd?: string } }>;
+      };
+
+      const pools = payload.data ?? [];
+      if (pools.length === 0) {
+        return null;
+      }
+
+      const sorted = pools
+        .map((pool) => ({
+          id: pool.id?.split('_').pop() ?? '',
+          liquidity: this.parseGeckoNumber(pool.attributes?.reserve_in_usd) ?? 0,
+        }))
+        .filter((p) => p.id)
+        .sort((a, b) => b.liquidity - a.liquidity);
+
+      return sorted[0]?.id ?? null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private mapChainToGeckoNetwork(chain: string): string | null {
+    const normalized = this.normalizeChain(chain);
+    const mapping: Record<string, string> = {
+      ethereum: 'eth',
+      bsc: 'bsc',
+      polygon: 'polygon_pos',
+      arbitrum: 'arbitrum',
+      avalanche: 'avax',
+      base: 'base',
+      optimism: 'optimism',
+      solana: 'solana',
+    };
+    return mapping[normalized] ?? null;
+  }
+
+  private parseGeckoNumber(value: string | undefined): number | null {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private pickOneHourAgoLiquidity(key: string, nowMs: number): number | null {
@@ -295,7 +463,12 @@ export class LiquidityService {
     liquidityUsd: number | null;
     liquidityDrop1hPct: number | null;
     withdrawalRiskFlag: boolean;
+    sourceUsed?: LiquiditySnapshot['sourceUsed'];
+    suggested?: LiquiditySnapshot['rugpullRiskSignal'];
   }): LiquiditySnapshot['rugpullRiskSignal'] {
+    if (input.sourceUsed === 'coingecko') {
+      return input.suggested ?? 'low';
+    }
     if (typeof input.liquidityUsd !== 'number') {
       return 'unknown';
     }
@@ -358,20 +531,135 @@ export class LiquidityService {
       avax: 'avalanche',
       avalanche: 'avalanche',
       base: 'base',
+      op: 'optimism',
+      optimism: 'optimism',
     };
     return aliases[normalized] ?? normalized;
   }
 
-  private toNullableNumber(value: unknown): number | null {
+  private shouldUseNativeProxy(identity: AnalyzeIdentity): boolean {
+    const symbol = identity.symbol.trim().toUpperCase();
+    const meta = TOKEN_REGISTRY[symbol];
+    return Boolean(meta && meta.hasContract === false && !identity.tokenAddress.trim());
+  }
+
+  private buildLiquidityKey(identity: AnalyzeIdentity): string {
+    if (this.shouldUseNativeProxy(identity)) {
+      return `native:${this.resolveCoinGeckoCoinId(identity) ?? identity.symbol.toUpperCase()}`;
+    }
+    return `${this.normalizeChain(identity.chain)}:${identity.tokenAddress.toLowerCase()}`;
+  }
+
+  private resolveCoinGeckoCoinId(identity: AnalyzeIdentity): string | null {
+    const symbol = identity.symbol.trim().toUpperCase();
+    const meta = TOKEN_REGISTRY[symbol];
+    if (meta?.coinId?.trim()) {
+      return meta.coinId.trim();
+    }
+    const match = identity.sourceId.match(/^coingecko:(.+)$/);
+    return match?.[1]?.trim() || null;
+  }
+
+  private getCoinGeckoBaseUrl(): string {
+    const raw =
+      process.env.COINGECKO_API_BASE_URL ??
+      'https://pro-api.coingecko.com/api/v3';
+    const value = raw.trim();
+    return value.endsWith('/') ? value.slice(0, -1) : value;
+  }
+
+  private buildCoinGeckoHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    const apiKey =
+      process.env.COINGECKO_ACCESS_KEY ?? process.env.COINGECKO_API_KEY;
+    if (!apiKey?.trim()) {
+      return headers;
+    }
+    if (this.getCoinGeckoBaseUrl().includes('pro-api.coingecko.com')) {
+      headers['x-cg-pro-api-key'] = apiKey.trim();
+    } else {
+      headers['x-cg-demo-api-key'] = apiKey.trim();
+    }
+    return headers;
+  }
+
+  private getCoinGeckoTimeoutMs(): number {
+    const configured = Number(
+      process.env.COINGECKO_LIQUIDITY_TIMEOUT_MS ??
+        process.env.COINGECKO_TIMEOUT_MS ??
+        5000,
+    );
+    return Number.isFinite(configured) ? Math.max(configured, 12000) : 12000;
+  }
+
+  private async fetchJson<T>(
+    url: string,
+    timeoutMs: number,
+    headers: Record<string, string>,
+  ): Promise<T | null> {
+    const attempts = Math.max(
+      1,
+      Number(process.env.COINGECKO_LIQUIDITY_RETRY_ATTEMPTS ?? 3),
+    );
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers,
+        });
+        if (!response.ok) {
+          this.logger.warn(
+            `Liquidity proxy request failed (${response.status}) for ${url}`,
+          );
+          return null;
+        }
+        return (await response.json()) as T;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable =
+          attempt < attempts &&
+          (message.includes('aborted') || message.includes('fetch failed'));
+        this.logger.warn(
+          `Liquidity proxy request unavailable for ${url}${retryable ? ` (attempt ${attempt}/${attempts})` : ''}: ${message}`,
+        );
+        if (!retryable) {
+          return null;
+        }
+        await this.delay(250 * attempt);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    return null;
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private toNumber(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) {
       return value;
     }
     if (typeof value === 'string') {
       const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
+      return Number.isFinite(parsed) ? parsed : null;
     }
     return null;
   }
+
+  private round(value: number | null, digits: number): number | null {
+    if (value === null || !Number.isFinite(value)) {
+      return null;
+    }
+    return Number(value.toFixed(digits));
+  }
+
 }

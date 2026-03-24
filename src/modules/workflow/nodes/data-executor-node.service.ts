@@ -2,30 +2,38 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   AnalyzeIdentity,
   CexNetflowSnapshot,
+  FundamentalsSnapshot,
   LiquiditySnapshot,
   NewsSnapshot,
   PriceSnapshot,
   SecuritySnapshot,
+  SentimentSnapshot,
   TechnicalSnapshot,
   TokenomicsSnapshot,
 } from '../../../data/contracts/analyze-contracts';
 import {
   DataType,
   ExecutionOutput,
+  IntentOutput,
   PlanOutput,
 } from '../../../data/contracts/workflow-contracts';
 import { MarketService } from '../../data/market/market.service';
 import { NewsService } from '../../data/news/news.service';
 import { TokenomicsService } from '../../data/tokenomics/tokenomics.service';
+import { FundamentalsService } from '../../data/fundamentals/fundamentals.service';
 import { TechnicalService } from '../../data/technical/technical.service';
 import { OnchainService } from '../../data/onchain/onchain.service';
 import { SecurityService } from '../../data/security/security.service';
 import { LiquidityService } from '../../data/liquidity/liquidity.service';
+import { SentimentService } from '../../data/sentiment/sentiment.service';
+import { DataCacheService } from '../../data/cache/data-cache.service';
 
 type ExecuteInput = {
   plan: PlanOutput;
   identity: AnalyzeIdentity;
   timeWindow: '24h' | '7d';
+  objective: IntentOutput['objective'];
+  taskType: IntentOutput['taskType'];
 };
 
 @Injectable()
@@ -36,13 +44,27 @@ export class DataExecutorNodeService {
     private readonly market: MarketService,
     private readonly news: NewsService,
     private readonly tokenomics: TokenomicsService,
+    private readonly fundamentals: FundamentalsService,
     private readonly technical: TechnicalService,
     private readonly onchain: OnchainService,
     private readonly security: SecurityService,
     private readonly liquidity: LiquidityService,
+    private readonly sentiment: SentimentService,
+    private readonly cache: DataCacheService,
   ) {}
 
   async execute(input: ExecuteInput): Promise<ExecutionOutput> {
+    const allDataTypes: DataType[] = [
+      'price',
+      'news',
+      'tokenomics',
+      'fundamentals',
+      'technical',
+      'onchain',
+      'security',
+      'liquidity',
+      'sentiment',
+    ];
     const requestedTypes = this.unique(
       input.plan.requirements
         .filter((item) => item.required)
@@ -51,15 +73,14 @@ export class DataExecutorNodeService {
     const strategyMandatory: DataType[] = [
       'price',
       'tokenomics',
+      'fundamentals',
       'technical',
       'onchain',
       'security',
       'liquidity',
+      'sentiment',
     ];
-    const executedTypes = this.unique([
-      ...requestedTypes,
-      ...strategyMandatory,
-    ]);
+    const executedTypes = this.unique([...requestedTypes, ...strategyMandatory]);
 
     const routing = executedTypes.map((dataType) => {
       const requirement = input.plan.requirements.find(
@@ -74,15 +95,23 @@ export class DataExecutorNodeService {
         ),
       };
     });
+    const selectedSourceByType = new Map(
+      routing.map((item) => [item.dataType, item.selectedSource]),
+    );
+    const selectedSource = (dataType: DataType): string =>
+      selectedSourceByType.get(dataType) ??
+      this.selectSource(dataType, []);
 
     const [
       priceSnapshot,
       newsSnapshot,
       tokenomicsSnapshot,
+      fundamentalsSnapshot,
       technicalSnapshot,
       onchainSnapshot,
       securitySnapshot,
       liquiditySnapshot,
+      sentimentSnapshot,
     ] = await Promise.all([
       this.runFetch(
         executedTypes.includes('price'),
@@ -98,9 +127,31 @@ export class DataExecutorNodeService {
       ),
       this.runFetch(
         executedTypes.includes('tokenomics'),
-        () => this.tokenomics.fetchSnapshot(input.identity),
+        () =>
+          this.cache.readThrough({
+            dataType: 'tokenomics',
+            identity: input.identity,
+            objective: input.objective,
+            taskType: input.taskType,
+            source: selectedSource('tokenomics'),
+            fetcher: () => this.tokenomics.fetchSnapshot(input.identity),
+          }),
         () => this.buildFallbackTokenomics('TOKENOMICS_NOT_REQUESTED'),
         () => this.buildFallbackTokenomics('TOKENOMICS_FETCH_FAILED'),
+      ),
+      this.runFetch(
+        executedTypes.includes('fundamentals'),
+        () =>
+          this.cache.readThrough({
+            dataType: 'fundamentals',
+            identity: input.identity,
+            objective: input.objective,
+            taskType: input.taskType,
+            source: selectedSource('fundamentals'),
+            fetcher: () => this.fundamentals.fetchSnapshot(input.identity),
+          }),
+        () => this.buildFallbackFundamentals('FUNDAMENTALS_NOT_REQUESTED'),
+        () => this.buildFallbackFundamentals('FUNDAMENTALS_FETCH_FAILED'),
       ),
       this.runFetch(
         executedTypes.includes('technical'),
@@ -110,14 +161,31 @@ export class DataExecutorNodeService {
       ),
       this.runFetch(
         executedTypes.includes('onchain'),
-        () => this.onchain.fetchCexNetflow(input.identity, input.timeWindow),
+        () =>
+          this.cache.readThrough({
+            dataType: 'onchain',
+            identity: input.identity,
+            objective: input.objective,
+            taskType: input.taskType,
+            timeWindow: input.timeWindow,
+            source: selectedSource('onchain'),
+            fetcher: () =>
+              this.onchain.fetchCexNetflow(input.identity, input.timeWindow),
+          }),
         () =>
           this.buildFallbackOnchain(input.timeWindow, 'ONCHAIN_NOT_REQUESTED'),
         () =>
           this.buildFallbackOnchain(input.timeWindow, 'ONCHAIN_FETCH_FAILED'),
       ),
       this.runCriticalFetch(executedTypes.includes('security'), () =>
-        this.security.fetchSnapshot(input.identity),
+        this.cache.readThrough({
+          dataType: 'security',
+          identity: input.identity,
+          objective: input.objective,
+          taskType: input.taskType,
+          source: selectedSource('security'),
+          fetcher: () => this.security.fetchSnapshot(input.identity),
+        }),
       ),
       this.runFetch(
         executedTypes.includes('liquidity'),
@@ -125,12 +193,29 @@ export class DataExecutorNodeService {
         () => this.buildFallbackLiquidity('LIQUIDITY_NOT_REQUESTED'),
         () => this.buildFallbackLiquidity('LIQUIDITY_FETCH_FAILED'),
       ),
+      this.runFetch(
+        executedTypes.includes('sentiment'),
+        () =>
+          this.cache.readThrough({
+            dataType: 'sentiment',
+            identity: input.identity,
+            objective: input.objective,
+            taskType: input.taskType,
+            source: selectedSource('sentiment'),
+            fetcher: () => this.sentiment.fetchSentiment(input.identity),
+          }),
+        () => this.buildFallbackSentiment('SENTIMENT_NOT_REQUESTED'),
+        () => this.buildFallbackSentiment('SENTIMENT_FETCH_FAILED'),
+      ),
     ]);
 
     const degradedNodes: DataType[] = [];
     const collectedTypes: DataType[] = [];
 
     const collect = (type: DataType, degraded: boolean) => {
+      if (!executedTypes.includes(type)) {
+        return;
+      }
       if (degraded) {
         degradedNodes.push(type);
       } else {
@@ -141,16 +226,18 @@ export class DataExecutorNodeService {
     collect('price', priceSnapshot.degraded);
     collect('news', newsSnapshot.degraded);
     collect('tokenomics', tokenomicsSnapshot.degraded);
+    collect('fundamentals', fundamentalsSnapshot.degraded);
     collect('technical', technicalSnapshot.degraded);
     collect('onchain', onchainSnapshot.degraded);
     collect('security', securitySnapshot.degraded);
     collect('liquidity', liquiditySnapshot.degraded);
+    collect('sentiment', sentimentSnapshot.degraded);
 
     const missingEvidence: string[] = [];
     if (tokenomicsSnapshot.tokenomicsEvidenceInsufficient) {
       missingEvidence.push('tokenomics');
     }
-    if (newsSnapshot.items.length === 0) {
+    if (executedTypes.includes('news') && newsSnapshot.items.length === 0) {
       missingEvidence.push('news');
     }
     if (priceSnapshot.priceUsd === null) {
@@ -169,10 +256,12 @@ export class DataExecutorNodeService {
         market: { price: priceSnapshot },
         news: newsSnapshot,
         tokenomics: tokenomicsSnapshot,
+        fundamentals: fundamentalsSnapshot,
         technical: technicalSnapshot,
         onchain: { cexNetflow: onchainSnapshot },
         security: securitySnapshot,
         liquidity: liquiditySnapshot,
+        sentiment: sentimentSnapshot,
       },
       asOf: new Date().toISOString(),
     };
@@ -212,15 +301,17 @@ export class DataExecutorNodeService {
       return sourceHint[0];
     }
 
-    const defaults: Record<DataType, string> = {
-      price: 'coinmarketcap',
-      news: 'messari',
-      tokenomics: 'tokenomist',
-      technical: 'coinmarketcap',
-      onchain: 'coinglass',
-      security: 'blockaid',
-      liquidity: 'cmc_dex',
-    };
+      const defaults: Record<DataType, string> = {
+        price: 'coingecko',
+        news: 'coindesk',
+        tokenomics: 'tokenomist',
+        fundamentals: 'rootdata',
+        technical: 'coingecko',
+        onchain: 'santiment',
+        security: 'goplus',
+        liquidity: 'geckoterminal',
+        sentiment: 'santiment',
+      };
     return defaults[dataType];
   }
 
@@ -235,6 +326,16 @@ export class DataExecutorNodeService {
       change24hPct: null,
       change7dPct: null,
       change30dPct: null,
+      marketCapRank: null,
+      circulatingSupply: null,
+      totalSupply: null,
+      maxSupply: null,
+      fdvUsd: null,
+      totalVolume24hUsd: null,
+      athUsd: null,
+      atlUsd: null,
+      athChangePct: null,
+      atlChangePct: null,
       asOf: new Date().toISOString(),
       sourceUsed: 'market_unavailable',
       degraded: true,
@@ -276,6 +377,57 @@ export class DataExecutorNodeService {
     };
   }
 
+  private buildFallbackFundamentals(reason: string): FundamentalsSnapshot {
+    return {
+      profile: {
+        projectId: null,
+        name: null,
+        tokenSymbol: null,
+        oneLiner: null,
+        description: null,
+        establishmentDate: null,
+        active: null,
+        logoUrl: null,
+        rootdataUrl: null,
+        tags: [],
+        totalFundingUsd: null,
+        rtScore: null,
+        tvlScore: null,
+        similarProjects: [],
+      },
+      team: [],
+      investors: [],
+      fundraising: [],
+      ecosystems: {
+        ecosystems: [],
+        onMainNet: [],
+        onTestNet: [],
+        planToLaunch: [],
+      },
+      social: {
+        heat: null,
+        heatRank: null,
+        influence: null,
+        influenceRank: null,
+        followers: null,
+        following: null,
+        hotIndexScore: null,
+        hotIndexRank: null,
+        xHeatScore: null,
+        xHeatRank: null,
+        xInfluenceScore: null,
+        xInfluenceRank: null,
+        xFollowersScore: null,
+        xFollowersRank: null,
+        socialLinks: [],
+      },
+      asOf: new Date().toISOString(),
+      sourceUsed: ['rootdata'],
+      degraded: true,
+      degradeReason: reason,
+    };
+  }
+
   private buildFallbackTechnical(reason: string): TechnicalSnapshot {
     return {
       rsi: {
@@ -302,6 +454,9 @@ export class DataExecutorNodeService {
         bandwidth: null,
         signal: 'neutral',
       },
+      atr: { value: null, period: 14 },
+      swingHigh: null,
+      swingLow: null,
       summarySignal: 'neutral',
       asOf: new Date().toISOString(),
       sourceUsed: 'technical_unavailable',
@@ -337,6 +492,20 @@ export class DataExecutorNodeService {
       riskLevel: 'unknown',
       riskItems: [],
       canTradeSafely: null,
+      holderCount: null,
+      lpHolderCount: null,
+      creatorPercent: null,
+      ownerPercent: null,
+      isInCex: null,
+      cexList: [],
+      isInDex: null,
+      transferPausable: null,
+      selfdestruct: null,
+      externalCall: null,
+      honeypotWithSameCreator: null,
+      trustList: null,
+      isAntiWhale: null,
+      transferTax: null,
       asOf: new Date().toISOString(),
       sourceUsed: 'security_unavailable',
       degraded: true,
@@ -360,6 +529,24 @@ export class DataExecutorNodeService {
       warnings: ['Liquidity source is unavailable for this token.'],
       asOf: new Date().toISOString(),
       sourceUsed: 'liquidity_unavailable',
+      degraded: true,
+      degradeReason: reason,
+    };
+  }
+
+  private buildFallbackSentiment(reason: string): SentimentSnapshot {
+    return {
+      socialVolume: null,
+      socialDominance: null,
+      sentimentPositive: null,
+      sentimentNegative: null,
+      sentimentBalanced: null,
+      sentimentScore: null,
+      devActivity: null,
+      githubActivity: null,
+      signal: 'neutral',
+      asOf: new Date().toISOString(),
+      sourceUsed: 'sentiment_unavailable',
       degraded: true,
       degradeReason: reason,
     };

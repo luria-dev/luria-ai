@@ -69,7 +69,7 @@ export class AnalyzeQueueService {
     const port = Number(process.env.REDIS_PORT ?? 6379);
     const password = process.env.REDIS_PASSWORD || undefined;
     const concurrency = Number(process.env.ANALYZE_QUEUE_CONCURRENCY ?? 4);
-    const queueName = process.env.ANALYZE_QUEUE_NAME ?? 'analyze-jobs';
+    const queueName = this.resolveQueueName();
     const connection = {
       host,
       port,
@@ -82,10 +82,21 @@ export class AnalyzeQueueService {
       this.worker = new Worker<AnalyzeJobData>(
         queueName,
         async (job) => {
+          const requestId = job.data?.requestId ?? 'unknown';
           if (!this.processor) {
+            this.logger.warn(
+              `Worker received job ${requestId} (${job.id ?? 'unknown'}) but no processor is registered.`,
+            );
             return;
           }
+
+          this.logger.debug(
+            `Worker started job ${requestId} (${job.id ?? 'unknown'}).`,
+          );
           await this.processor(job.data);
+          this.logger.debug(
+            `Worker completed job ${requestId} (${job.id ?? 'unknown'}).`,
+          );
         },
         {
           connection,
@@ -100,6 +111,13 @@ export class AnalyzeQueueService {
         this.logger.error(
           `Worker failed job ${requestId ?? 'unknown'}.`,
           normalizedError,
+        );
+      });
+
+      this.worker.on('completed', (job) => {
+        const requestId = job?.data?.requestId;
+        this.logger.debug(
+          `Worker marked job ${requestId ?? 'unknown'} completed.`,
         );
       });
 
@@ -141,6 +159,22 @@ export class AnalyzeQueueService {
     }
 
     this.queueEnabled = false;
-    this.queueInitPromise = undefined;
+      this.queueInitPromise = undefined;
+  }
+
+  private resolveQueueName(): string {
+    const explicitName = process.env.ANALYZE_QUEUE_NAME?.trim();
+    if (explicitName) {
+      return explicitName;
+    }
+
+    const nodeEnv = (process.env.NODE_ENV ?? 'development').toLowerCase();
+    const isProduction = nodeEnv === 'production' || nodeEnv === 'prod';
+    if (isProduction) {
+      return 'analyze-jobs';
+    }
+
+    const port = process.env.PORT?.trim() || '3000';
+    return `analyze-jobs-local-${port}`;
   }
 }

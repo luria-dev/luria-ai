@@ -2,10 +2,10 @@ import { MarketService } from './market.service';
 
 describe('MarketService.fetchPrice', () => {
   const identity = {
-    symbol: 'PEPE',
+    symbol: 'UNI',
     chain: 'ethereum',
-    tokenAddress: '0x6982508145454ce325ddbe47a25d4ec3d2311933',
-    sourceId: 'coinmarketcap:24478',
+    tokenAddress: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+    sourceId: 'coingecko:uniswap',
   };
 
   const originalFetch = global.fetch;
@@ -15,25 +15,18 @@ describe('MarketService.fetchPrice', () => {
     jest.restoreAllMocks();
   });
 
-  it('should map coinmarketcap quote into snapshot', async () => {
+  it('maps CoinGecko market_data into snapshot (including usd change maps)', async () => {
     global.fetch = jest.fn(async () => {
       return {
         ok: true,
         json: async () => ({
-          data: {
-            '24478': {
-              id: 24478,
-              symbol: 'PEPE',
-              quote: {
-                USD: {
-                  price: 0.0000123,
-                  percent_change_1h: 2.5,
-                  percent_change_24h: -1.8,
-                  percent_change_7d: 5.6,
-                  percent_change_30d: 12.3,
-                },
-              },
-            },
+          market_data: {
+            current_price: { usd: 4.02 },
+            market_cap: { usd: 2538196620 },
+            price_change_percentage_1h_in_currency: { usd: 0.02078 },
+            price_change_percentage_24h_in_currency: { usd: -0.84716 },
+            price_change_percentage_7d_in_currency: { usd: 1.99458 },
+            price_change_percentage_30d_in_currency: { usd: 12.15153 },
           },
         }),
       } as Response;
@@ -42,18 +35,46 @@ describe('MarketService.fetchPrice', () => {
     const service = new MarketService();
     const result = await service.fetchPrice(identity);
 
-    expect(result.priceUsd).toBeCloseTo(0.0000123);
-    expect(result.change1hPct).toBe(2.5);
-    expect(result.change24hPct).toBe(-1.8);
-    expect(result.change7dPct).toBe(5.6);
-    expect(result.change30dPct).toBe(12.3);
-    expect(result.sourceUsed).toBe('coinmarketcap');
+    expect(result.priceUsd).toBe(4.02);
+    expect(result.marketCapUsd).toBe(2538196620);
+    expect(result.change1hPct).toBe(0.02078);
+    expect(result.change24hPct).toBe(-0.84716);
+    expect(result.change7dPct).toBe(1.99458);
+    expect(result.change30dPct).toBe(12.15153);
+    expect(result.sourceUsed).toBe('coingecko');
     expect(result.degraded).toBe(false);
+    expect(result.degradeReason).toBeUndefined();
   });
 
-  it('should return unavailable snapshot when source fails', async () => {
+  it('marks PRICE_CHANGE_24H_MISSING when usd 24h change is absent', async () => {
+    global.fetch = jest.fn(async () => {
+      return {
+        ok: true,
+        json: async () => ({
+          market_data: {
+            current_price: { usd: 4.02 },
+            market_cap: { usd: 2538196620 },
+            price_change_percentage_1h_in_currency: { usd: 0.02078 },
+            price_change_percentage_24h_in_currency: { eur: -0.84716 },
+            price_change_percentage_7d_in_currency: { usd: 1.99458 },
+            price_change_percentage_30d_in_currency: { usd: 12.15153 },
+          },
+        }),
+      } as Response;
+    }) as typeof fetch;
+
+    const service = new MarketService();
+    const result = await service.fetchPrice(identity);
+
+    expect(result.priceUsd).toBe(4.02);
+    expect(result.change24hPct).toBeNull();
+    expect(result.degraded).toBe(true);
+    expect(result.degradeReason).toBe('PRICE_CHANGE_24H_MISSING');
+  });
+
+  it('returns unavailable snapshot with HTTP error classification', async () => {
     global.fetch = jest.fn(
-      async () => ({ ok: false, status: 500 }) as Response,
+      async () => ({ ok: false, status: 401 }) as Response,
     ) as typeof fetch;
 
     const service = new MarketService();
@@ -66,5 +87,25 @@ describe('MarketService.fetchPrice', () => {
     expect(result.change30dPct).toBeNull();
     expect(result.sourceUsed).toBe('market_unavailable');
     expect(result.degraded).toBe(true);
+    expect(result.degradeReason).toBe('COINGECKO_HTTP_401');
+  });
+
+  it('returns unavailable snapshot with connect-timeout classification', async () => {
+    const error = new TypeError('fetch failed') as TypeError & {
+      cause?: { code?: string };
+    };
+    error.cause = { code: 'UND_ERR_CONNECT_TIMEOUT' };
+
+    global.fetch = jest.fn(async () => {
+      throw error;
+    }) as typeof fetch;
+
+    const service = new MarketService();
+    const result = await service.fetchPrice(identity);
+
+    expect(result.priceUsd).toBeNull();
+    expect(result.sourceUsed).toBe('market_unavailable');
+    expect(result.degraded).toBe(true);
+    expect(result.degradeReason).toBe('COINGECKO_CONNECT_TIMEOUT');
   });
 });

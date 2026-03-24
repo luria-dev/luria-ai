@@ -20,8 +20,9 @@ export function scoreWorkflowForComparison(
   pipeline: WorkflowRunResult,
   config: ComparisonScoringConfig = defaultComparisonScoringConfig,
 ): ComparisonScoreBreakdown {
-  const verdictBase = config.verdictBase[pipeline.strategy.verdict];
-  const confidence = pipeline.strategy.confidence * config.confidenceMultiplier;
+  const advisory = pipeline.analysis;
+  const verdictBase = config.verdictBase[advisory.verdict];
+  const confidence = advisory.confidence * config.confidenceMultiplier;
   const redAlerts = pipeline.alerts.redCount * config.redAlertPenalty;
   const yellowAlerts = pipeline.alerts.yellowCount * config.yellowAlertPenalty;
   const degradedNodes =

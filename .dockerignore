@@ -15,7 +15,7 @@ coverage
 .temp
 
 test
-docs
+fortest
 
 .env
 .env.*

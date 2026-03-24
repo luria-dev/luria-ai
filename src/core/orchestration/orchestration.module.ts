@@ -3,6 +3,7 @@ import { AnalyzeOrchestratorService } from './analyze-orchestrator.service';
 import { SearcherModule } from '../../modules/data/searcher/searcher.module';
 import { MarketModule } from '../../modules/data/market/market.module';
 import { TokenomicsModule } from '../../modules/data/tokenomics/tokenomics.module';
+import { FundamentalsModule } from '../../modules/data/fundamentals/fundamentals.module';
 import { TechnicalModule } from '../../modules/data/technical/technical.module';
 import { OnchainModule } from '../../modules/data/onchain/onchain.module';
 import { SentimentModule } from '../../modules/data/sentiment/sentiment.module';
@@ -23,6 +24,7 @@ import { ComparisonService } from './services/comparison.service';
     MarketModule,
     NewsModule,
     TokenomicsModule,
+    FundamentalsModule,
     TechnicalModule,
     OnchainModule,
     SentimentModule,

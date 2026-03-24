@@ -4,8 +4,21 @@ import {
   TechnicalSnapshot,
 } from '../../../data/contracts/analyze-contracts';
 
-type CmcHistoricalResponse = {
-  data?: unknown;
+type CoinGeckoSearchCoin = {
+  id?: string;
+  symbol?: string;
+};
+
+type CoinGeckoSearchResponse = {
+  coins?: unknown;
+};
+
+type CoinGeckoContractResponse = {
+  id?: string;
+};
+
+type CoinGeckoMarketChartResponse = {
+  prices?: unknown;
 };
 
 @Injectable()
@@ -45,6 +58,9 @@ export class TechnicalService {
     const ma99 = this.calculateSma(prices, 99);
 
     const boll = this.calculateBoll(prices, 20, 2);
+    const atrValue = this.calculateAtr(prices, 14);
+    const swingHigh = this.findSwingHigh(prices, 5);
+    const swingLow = this.findSwingLow(prices, 5);
     const rsiSignal = this.toRsiSignal(rsiValue);
     const macdSignal = this.toMacdSignal(macd, signalLine);
     const maSignal = this.toMaSignal(ma7, ma25, ma99);
@@ -81,9 +97,15 @@ export class TechnicalService {
         bandwidth: this.round(boll.bandwidth, 6),
         signal: bollSignal,
       },
+      atr: {
+        value: this.round(atrValue, 6),
+        period: 14,
+      },
+      swingHigh: swingHigh !== null ? this.round(swingHigh, 6) : null,
+      swingLow: swingLow !== null ? this.round(swingLow, 6) : null,
       summarySignal,
       asOf: new Date().toISOString(),
-      sourceUsed: 'coinmarketcap',
+      sourceUsed: 'coingecko',
       degraded: false,
     };
   }
@@ -92,157 +114,237 @@ export class TechnicalService {
     identity: AnalyzeIdentity,
     timeWindow: '24h' | '7d',
   ): Promise<number[]> {
-    const baseUrl =
-      process.env.COINMARKETCAP_API_BASE_URL ??
-      'https://pro-api.coinmarketcap.com';
-    const path =
-      process.env.CMC_HISTORICAL_PATH ?? '/v3/cryptocurrency/quotes/historical';
-    const timeoutMs = Number(process.env.COINMARKETCAP_TIMEOUT_MS ?? 5000);
-    const interval = '1h';
-    const count = timeWindow === '24h' ? '168' : '720';
+    const coinId = await this.resolveCoinId(identity);
+    if (!coinId) {
+      return [];
+    }
+
+    const baseUrl = this.getApiBaseUrl();
+    const timeoutMs = this.getTimeoutMs();
+    const days =
+      timeWindow === '24h'
+        ? Number(process.env.COINGECKO_TECH_DAYS_24H ?? 14)
+        : Number(process.env.COINGECKO_TECH_DAYS_7D ?? 30);
 
     const params = new URLSearchParams({
-      convert: 'USD',
-      interval,
-      count,
+      vs_currency: 'usd',
+      days: String(days),
+      interval: 'hourly',
     });
-    const cmcId = this.extractCmcId(identity.sourceId);
-    if (cmcId) {
-      params.set('id', String(cmcId));
-    } else {
-      params.set('symbol', identity.symbol.toUpperCase());
-    }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const headers: Record<string, string> = {};
-      const apiKey = process.env.COINMARKETCAP_API_KEY;
-      if (apiKey?.trim()) {
-        headers['X-CMC_PRO_API_KEY'] = apiKey.trim();
-      }
+    const body = await this.fetchJson<CoinGeckoMarketChartResponse>(
+      `${baseUrl}/coins/${encodeURIComponent(coinId)}/market_chart?${params.toString()}`,
+      timeoutMs,
+    );
 
-      const response = await fetch(`${baseUrl}${path}?${params.toString()}`, {
-        signal: controller.signal,
-        headers,
-      });
-      if (!response.ok) {
-        this.logger.warn(
-          `CoinMarketCap technical fetch failed (${response.status}) for ${identity.symbol}.`,
-        );
-        return [];
-      }
-
-      const body = (await response.json()) as CmcHistoricalResponse;
-      return this.extractPrices(body.data, identity.symbol);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `CoinMarketCap technical fetch unavailable for ${identity.symbol}: ${message}`,
-      );
-      return [];
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.extractPrices(body?.prices);
   }
 
-  private extractPrices(data: unknown, symbol: string): number[] {
-    const target = this.pickDataNode(data, symbol);
-    if (!target) {
+  private extractPrices(input: unknown): number[] {
+    if (!Array.isArray(input)) {
       return [];
-    }
-
-    const candidates: unknown[] = [];
-    if (Array.isArray(target)) {
-      candidates.push(...target);
-    } else if (typeof target === 'object' && target !== null) {
-      const obj = target as Record<string, unknown>;
-      if (Array.isArray(obj.quotes)) {
-        candidates.push(...obj.quotes);
-      }
-      if (Array.isArray(obj.data)) {
-        candidates.push(...obj.data);
-      }
-      if (Array.isArray(obj.points)) {
-        candidates.push(...obj.points);
-      }
     }
 
     const prices: number[] = [];
-    for (const item of candidates) {
-      const price = this.extractPrice(item);
-      if (typeof price === 'number' && Number.isFinite(price)) {
+    for (const row of input) {
+      if (!Array.isArray(row) || row.length < 2) {
+        continue;
+      }
+
+      const price = this.toNumber(row[1]);
+      if (price !== null && Number.isFinite(price)) {
         prices.push(price);
       }
     }
+
     return prices;
   }
 
-  private pickDataNode(data: unknown, symbol: string): unknown {
-    if (!data) {
-      return null;
-    }
-    if (Array.isArray(data)) {
-      return data;
-    }
-    if (typeof data !== 'object') {
-      return null;
+  private async resolveCoinId(identity: AnalyzeIdentity): Promise<string | null> {
+    const bySource = this.extractCoinGeckoId(identity.sourceId);
+    if (bySource) {
+      return bySource;
     }
 
-    const obj = data as Record<string, unknown>;
-    const symbolUpper = symbol.toUpperCase();
-
-    for (const [key, value] of Object.entries(obj)) {
-      if (key.toUpperCase() === symbolUpper) {
-        return value;
-      }
-      if (Array.isArray(value) || (value && typeof value === 'object')) {
-        if (Array.isArray(value)) {
-          const first = value[0];
-          if (first && typeof first === 'object') {
-            const rowSymbol = String(
-              (first as Record<string, unknown>).symbol ?? '',
-            ).toUpperCase();
-            if (rowSymbol === symbolUpper) {
-              return value;
-            }
-          }
-        } else {
-          const valObj = value as Record<string, unknown>;
-          const rowSymbol = String(valObj.symbol ?? '').toUpperCase();
-          if (rowSymbol === symbolUpper || Array.isArray(valObj.quotes)) {
-            return value;
-          }
-        }
+    const platform = this.toCoinGeckoPlatform(identity.chain);
+    if (platform) {
+      const byContract = await this.fetchCoinByContract(
+        platform,
+        identity.tokenAddress,
+      );
+      if (byContract?.id?.trim()) {
+        return byContract.id.trim();
       }
     }
 
-    return data;
+    const rows = await this.fetchSearchCoins(identity.symbol);
+    const exact = rows.find(
+      (row) => (row.symbol ?? '').trim().toUpperCase() === identity.symbol,
+    );
+    return exact?.id?.trim() || rows[0]?.id?.trim() || null;
   }
 
-  private extractPrice(item: unknown): number | null {
-    if (!item || typeof item !== 'object') {
+  private async fetchSearchCoins(term: string): Promise<CoinGeckoSearchCoin[]> {
+    const normalized = term.trim();
+    if (!normalized) {
+      return [];
+    }
+
+    const baseUrl = this.getApiBaseUrl();
+    const timeoutMs = this.getTimeoutMs();
+    const body = await this.fetchJson<CoinGeckoSearchResponse>(
+      `${baseUrl}/search?query=${encodeURIComponent(normalized)}`,
+      timeoutMs,
+    );
+
+    if (!body || !Array.isArray(body.coins)) {
+      return [];
+    }
+
+    return body.coins.filter((row): row is CoinGeckoSearchCoin => {
+      return Boolean(row && typeof row === 'object');
+    });
+  }
+
+  private async fetchCoinByContract(
+    platform: string,
+    tokenAddress: string,
+  ): Promise<CoinGeckoContractResponse | null> {
+    const address = tokenAddress.trim();
+    if (!address) {
       return null;
     }
 
-    const obj = item as Record<string, unknown>;
-    const direct = this.toNumber(obj.price ?? obj.close ?? obj.value);
-    if (direct !== null) {
-      return direct;
+    const baseUrl = this.getApiBaseUrl();
+    const timeoutMs = this.getTimeoutMs();
+    const params = new URLSearchParams({
+      localization: 'false',
+      tickers: 'false',
+      market_data: 'false',
+      community_data: 'false',
+      developer_data: 'false',
+      sparkline: 'false',
+    });
+
+    return this.fetchJson<CoinGeckoContractResponse>(
+      `${baseUrl}/coins/${encodeURIComponent(platform)}/contract/${encodeURIComponent(address)}?${params.toString()}`,
+      timeoutMs,
+    );
+  }
+
+  private getApiBaseUrl(): string {
+    const raw =
+      process.env.COINGECKO_API_BASE_URL ??
+      'https://pro-api.coingecko.com/api/v3';
+    const value = raw.trim();
+    return value.endsWith('/') ? value.slice(0, -1) : value;
+  }
+
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+
+    const apiKey =
+      process.env.COINGECKO_ACCESS_KEY ?? process.env.COINGECKO_API_KEY;
+    if (!apiKey?.trim()) {
+      return headers;
     }
 
-    const quote = obj.quote;
-    if (quote && typeof quote === 'object') {
-      const usd = (quote as Record<string, unknown>).USD;
-      if (usd && typeof usd === 'object') {
-        const fromUsd = this.toNumber((usd as Record<string, unknown>).price);
-        if (fromUsd !== null) {
-          return fromUsd;
+    const key = apiKey.trim();
+    if (this.getApiBaseUrl().includes('pro-api.coingecko.com')) {
+      headers['x-cg-pro-api-key'] = key;
+    } else {
+      headers['x-cg-demo-api-key'] = key;
+    }
+
+    return headers;
+  }
+
+  private getTimeoutMs(): number {
+    const configured = Number(
+      process.env.COINGECKO_TECH_TIMEOUT_MS ??
+        process.env.COINGECKO_TIMEOUT_MS ??
+        5000,
+    );
+    return Number.isFinite(configured) ? Math.max(configured, 12000) : 12000;
+  }
+
+  private async fetchJson<T>(url: string, timeoutMs: number): Promise<T | null> {
+    const attempts = Math.max(
+      1,
+      Number(process.env.COINGECKO_TECH_RETRY_ATTEMPTS ?? 3),
+    );
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: this.buildHeaders(),
+        });
+        if (!response.ok) {
+          this.logger.warn(
+            `CoinGecko technical fetch failed (${response.status}) for ${url}.`,
+          );
+          return null;
         }
+
+        return (await response.json()) as T;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable =
+          attempt < attempts &&
+          (message.includes('aborted') || message.includes('fetch failed'));
+        this.logger.warn(
+          `CoinGecko technical fetch unavailable${retryable ? ` (attempt ${attempt}/${attempts})` : ''}: ${message}`,
+        );
+        if (!retryable) {
+          return null;
+        }
+        await this.delay(250 * attempt);
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
     return null;
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private extractCoinGeckoId(sourceId: string): string | null {
+    const match = sourceId.match(/^coingecko:(.+)$/);
+    if (!match?.[1]) {
+      return null;
+    }
+    return match[1].trim() || null;
+  }
+
+  private toCoinGeckoPlatform(chain: string): string | null {
+    const normalized = chain.trim().toLowerCase();
+    const mapping: Record<string, string> = {
+      ethereum: 'ethereum',
+      eth: 'ethereum',
+      bsc: 'binance-smart-chain',
+      bnb: 'binance-smart-chain',
+      solana: 'solana',
+      sol: 'solana',
+      polygon: 'polygon-pos',
+      matic: 'polygon-pos',
+      arbitrum: 'arbitrum-one',
+      arb: 'arbitrum-one',
+      avalanche: 'avalanche',
+      avax: 'avalanche',
+      base: 'base',
+      optimism: 'optimistic-ethereum',
+      op: 'optimistic-ethereum',
+    };
+    return mapping[normalized] ?? null;
   }
 
   private calculateSma(values: number[], period: number): number | null {
@@ -350,6 +452,62 @@ export class TechnicalService {
     };
   }
 
+  /**
+   * Average True Range (ATR) - measures volatility
+   * We approximate using high-low range since we only have close prices
+   */
+  private calculateAtr(values: number[], period: number): number | null {
+    if (values.length < period + 1) {
+      return null;
+    }
+    const ranges: number[] = [];
+    for (let i = values.length - period; i < values.length; i += 1) {
+      ranges.push(Math.abs(values[i] - values[i - 1]));
+    }
+    const sum = ranges.reduce((acc, v) => acc + v, 0);
+    return sum / period;
+  }
+
+  /**
+   * Find swing high within lookback window
+   */
+  private findSwingHigh(values: number[], lookback: number): number | null {
+    if (values.length < lookback * 2 + 1) {
+      return null;
+    }
+    const window = values.slice(0, -1); // exclude current bar
+    let max = -Infinity;
+    let maxIndex = -1;
+    for (let i = lookback; i < window.length - lookback; i += 1) {
+      const localMax = Math.max(...window.slice(i - lookback, i + lookback + 1));
+      if (localMax > max) {
+        max = localMax;
+        maxIndex = i;
+      }
+    }
+    return maxIndex >= 0 ? max : null;
+  }
+
+  /**
+   * Find swing low within lookback window
+   */
+  private findSwingLow(values: number[], lookback: number): number | null {
+    if (values.length < lookback * 2 + 1) {
+      return null;
+    }
+    const window = values.slice(0, -1);
+    let min = Infinity;
+    let minIndex = -1;
+    for (let i = lookback; i < window.length - lookback; i += 1) {
+      const localMin = Math.min(...window.slice(i - lookback, i + lookback + 1));
+      if (localMin < min) {
+        min = localMin;
+        minIndex = i;
+      }
+    }
+    return minIndex >= 0 ? min : null;
+  }
+
   private toRsiSignal(value: number | null): 'bullish' | 'bearish' | 'neutral' {
     if (value === null) {
       return 'neutral';
@@ -450,15 +608,6 @@ export class TechnicalService {
     return null;
   }
 
-  private extractCmcId(sourceId: string): number | null {
-    const match = sourceId.match(/^coinmarketcap:(\d+)$/);
-    if (!match) {
-      return null;
-    }
-    const parsed = Number(match[1]);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
   private buildUnavailable(reason: string): TechnicalSnapshot {
     return {
       rsi: {
@@ -485,6 +634,9 @@ export class TechnicalService {
         bandwidth: null,
         signal: 'neutral',
       },
+      atr: { value: null, period: 14 },
+      swingHigh: null,
+      swingLow: null,
       summarySignal: 'neutral',
       asOf: new Date().toISOString(),
       sourceUsed: 'technical_unavailable',

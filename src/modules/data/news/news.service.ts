@@ -5,19 +5,39 @@ import {
   NewsSnapshot,
 } from '../../../data/contracts/analyze-contracts';
 
-type MessariNewsRow = {
+type CoinDeskNewsRow = {
   id?: string | number;
+  guid?: string;
   title?: string;
+  TITLE?: string;
+  body?: string;
+  BODY?: string;
   url?: string;
+  URL?: string;
   published_at?: string;
   publishedAt?: string;
+  PUBLISHED_ON?: string | number;
   source?: string;
-  references?: Array<{ url?: string }>;
-  tags?: Array<string | { slug?: string; name?: string }>;
+  SOURCE?: string;
+  source_data?: { name?: string; NAME?: string };
+  SOURCE_DATA?: { name?: string; NAME?: string };
+  tags?: Array<string | { name?: string; slug?: string }>;
+  categories?: Array<string | { name?: string; slug?: string }>;
+  CATEGORY_DATA?: Array<{ NAME?: string; name?: string }>;
 };
 
-type MessariNewsResponse = {
+type CoinDeskNewsResponse = {
+  Data?: unknown;
   data?: unknown;
+  items?: unknown;
+  results?: unknown;
+};
+
+type NewsKeywords = {
+  symbol: string;
+  searchTerm: string;
+  primaryTerm: string;
+  terms: string[];
 };
 
 @Injectable()
@@ -33,12 +53,12 @@ export class NewsService {
     identity: AnalyzeIdentity,
     limit = 5,
   ): Promise<NewsSnapshot> {
-    const items = await this.fetchMessariNews(
+    const items = await this.fetchCoinDeskNews(
       identity,
-      Math.max(limit * 2, 10),
+      Math.max(limit * 4, 20),
     );
     const filtered = items
-      .filter((item) => item.relevanceScore >= 0.6)
+      .filter((item) => item.relevanceScore >= 0.55)
       .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
       .slice(0, limit);
 
@@ -56,57 +76,61 @@ export class NewsService {
     return {
       items: filtered,
       asOf: new Date().toISOString(),
-      sourceUsed: 'messari',
+      sourceUsed: 'coindesk',
       degraded: false,
     };
   }
 
-  private async fetchMessariNews(
+  private async fetchCoinDeskNews(
     identity: AnalyzeIdentity,
     limit: number,
   ): Promise<NewsItem[]> {
     const baseUrl =
-      process.env.MESSARI_NEWS_URL ?? 'https://data.messari.io/api/v1/news';
-    const timeoutMs = Number(process.env.MESSARI_TIMEOUT_MS ?? 5000);
-    const symbol = identity.symbol.trim().toUpperCase();
+      process.env.COINDESK_NEWS_URL ??
+      'https://data-api.coindesk.com/news/v1/article/list';
+    const timeoutMs = Number(process.env.COINDESK_TIMEOUT_MS ?? 5000);
+    const keywords = this.buildNewsKeywords(identity);
+
     const params = new URLSearchParams({
+      lang: 'EN',
       limit: String(limit),
-      sort: 'published_at',
-      direction: 'desc',
     });
-    if (symbol) {
-      params.set('asset_symbols', symbol);
+    if (keywords.searchTerm) {
+      params.set('query', keywords.searchTerm);
+      params.set('search_string', keywords.searchTerm);
+    }
+
+    const apiKey =
+      process.env.COINDESK_ACCESS_KEY ?? process.env.COINDESK_API_KEY;
+    if (apiKey?.trim()) {
+      params.set('api_key', apiKey.trim());
     }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const headers: Record<string, string> = {};
-      const apiKey = process.env.MESSARI_API_KEY;
-      if (apiKey?.trim()) {
-        headers['x-messari-api-key'] = apiKey.trim();
-      }
-
       const response = await fetch(`${baseUrl}?${params.toString()}`, {
         signal: controller.signal,
-        headers,
+        headers: {
+          Accept: 'application/json',
+        },
       });
       if (!response.ok) {
         this.logger.warn(
-          `Messari news fetch failed (${response.status}) for ${identity.symbol}.`,
+          `CoinDesk news fetch failed (${response.status}) for ${identity.symbol}.`,
         );
         return [];
       }
 
-      const body = (await response.json()) as MessariNewsResponse;
-      const rows = this.extractRows(body.data);
+      const body = (await response.json()) as CoinDeskNewsResponse;
+      const rows = this.extractRows(body);
       return rows
-        .map((row) => this.toNewsItem(row, symbol))
+        .map((row) => this.toNewsItem(row, keywords))
         .filter((item): item is NewsItem => item !== null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `Messari news unavailable for ${identity.symbol}: ${message}`,
+        `CoinDesk news unavailable for ${identity.symbol}: ${message}`,
       );
       return [];
     } finally {
@@ -114,110 +138,200 @@ export class NewsService {
     }
   }
 
-  private extractRows(data: unknown): MessariNewsRow[] {
-    if (Array.isArray(data)) {
-      return data.filter((row): row is MessariNewsRow =>
-        Boolean(row && typeof row === 'object'),
-      );
-    }
-    if (data && typeof data === 'object') {
-      const obj = data as Record<string, unknown>;
-      const candidates = [obj.data, obj.items, obj.news, obj.results];
-      for (const candidate of candidates) {
-        if (Array.isArray(candidate)) {
-          return candidate.filter((row): row is MessariNewsRow =>
-            Boolean(row && typeof row === 'object'),
-          );
-        }
-      }
-      if ('title' in obj) {
-        return [obj as MessariNewsRow];
+  private extractRows(body: CoinDeskNewsResponse): CoinDeskNewsRow[] {
+    const candidates = [body.Data, body.data, body.items, body.results];
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        return candidate.filter((row): row is CoinDeskNewsRow =>
+          Boolean(row && typeof row === 'object'),
+        );
       }
     }
     return [];
   }
 
-  private toNewsItem(row: MessariNewsRow, symbol: string): NewsItem | null {
-    const title = (row.title ?? '').trim();
+  private toNewsItem(
+    row: CoinDeskNewsRow,
+    keywords: NewsKeywords,
+  ): NewsItem | null {
+    const title = (row.title ?? row.TITLE ?? '').trim();
     if (!title) {
       return null;
     }
 
-    const publishedAt = this.toIsoTime(row.published_at ?? row.publishedAt);
+    const publishedAt = this.toIsoTime(
+      row.publishedAt ?? row.published_at ?? row.PUBLISHED_ON,
+    );
     if (!publishedAt) {
       return null;
     }
 
-    const url =
-      (row.url ?? '').trim() ||
-      row.references
-        ?.find((ref) => typeof ref?.url === 'string' && ref.url.trim())
-        ?.url?.trim() ||
-      '';
+    const url = (row.url ?? row.URL ?? row.guid ?? '').trim();
     if (!url) {
       return null;
     }
 
-    const tags = this.toTagTexts(row.tags);
+    const tags = this.toTagTexts(row);
     const relevanceScore = this.computeRelevanceScore({
       title,
+      body: row.body ?? row.BODY ?? '',
       tags,
-      symbol,
+      primaryTerm: keywords.primaryTerm,
+      terms: keywords.terms,
     });
 
     return {
-      id: String(row.id ?? `${publishedAt}:${title.slice(0, 24)}`),
+      id: String(row.id ?? row.guid ?? `${publishedAt}:${title.slice(0, 24)}`),
       title,
       url,
-      source: (row.source ?? 'messari').toString().trim() || 'messari',
+      source: this.resolveSource(row),
       publishedAt,
       category: this.toCategory(title, tags),
       relevanceScore,
     };
   }
 
-  private toTagTexts(input: MessariNewsRow['tags']): string[] {
-    if (!Array.isArray(input)) {
-      return [];
-    }
+  private resolveSource(row: CoinDeskNewsRow): string {
+    const source =
+      row.source_data?.name ??
+      row.source_data?.NAME ??
+      row.SOURCE_DATA?.name ??
+      row.SOURCE_DATA?.NAME ??
+      row.source ??
+      row.SOURCE ??
+      'coindesk';
+    return String(source).trim() || 'coindesk';
+  }
+
+  private toTagTexts(row: CoinDeskNewsRow): string[] {
+    const raw = [row.tags ?? [], row.categories ?? [], row.CATEGORY_DATA ?? []]
+      .flat()
+      .filter((item) => item !== null && item !== undefined);
+
     const result: string[] = [];
-    for (const item of input) {
+    for (const item of raw) {
       if (typeof item === 'string' && item.trim()) {
         result.push(item.trim().toLowerCase());
         continue;
       }
+
       if (item && typeof item === 'object') {
-        const text = `${item.slug ?? item.name ?? ''}`.trim();
+        const obj = item as Record<string, unknown>;
+        const raw = obj.slug ?? obj.name ?? obj.NAME ?? '';
+        const text =
+          typeof raw === 'string' || typeof raw === 'number'
+            ? String(raw).trim()
+            : '';
         if (text) {
           result.push(text.toLowerCase());
         }
       }
     }
+
     return [...new Set(result)];
   }
 
   private computeRelevanceScore(input: {
     title: string;
+    body: string;
     tags: string[];
-    symbol: string;
+    primaryTerm: string;
+    terms: string[];
   }): number {
-    const titleLower = input.title.toLowerCase();
-    const symbolLower = input.symbol.toLowerCase();
-    let score = 0.45;
-    if (symbolLower && titleLower.includes(symbolLower)) {
+    const title = input.title.toLowerCase();
+    const text = `${input.title} ${input.body}`.toLowerCase();
+
+    const hasPrimaryInTitle = this.containsWholeTerm(title, input.primaryTerm);
+    const hasTermInText = input.terms.some((term) =>
+      this.containsWholeTerm(text, term),
+    );
+    const hasTermInTags = input.tags.some((tag) =>
+      input.terms.some((term) => this.containsWholeTerm(tag, term)),
+    );
+
+    let score = 0.2;
+    if (hasPrimaryInTitle) {
+      score += 0.45;
+    } else if (hasTermInText) {
       score += 0.3;
     }
-    if (input.tags.some((tag) => tag.includes(symbolLower))) {
-      score += 0.2;
+    if (hasTermInTags) {
+      score += 0.25;
     }
     if (
       input.tags.some((tag) =>
-        ['security', 'listing', 'partnership', 'market'].includes(tag),
+        ['security', 'listing', 'partnership', 'market', 'macro'].includes(tag),
       )
     ) {
       score += 0.05;
     }
+
     return Math.max(0, Math.min(1, Number(score.toFixed(2))));
+  }
+
+  private buildNewsKeywords(identity: AnalyzeIdentity): NewsKeywords {
+    const symbol = identity.symbol.trim().toUpperCase();
+    const terms = new Set<string>();
+    if (symbol) {
+      terms.add(symbol.toLowerCase());
+    }
+
+    const slug = this.extractSlugFromSourceId(identity.sourceId);
+    if (slug) {
+      terms.add(slug);
+      terms.add(slug.replace(/-/g, ' '));
+    }
+
+    for (const alias of this.getSymbolAliases(symbol)) {
+      terms.add(alias);
+    }
+
+    const sortedTerms = [...terms]
+      .map((term) => term.trim().toLowerCase())
+      .filter((term) => term.length > 0)
+      .sort((a, b) => b.length - a.length);
+
+    const primaryTerm =
+      sortedTerms.find((term) => term !== symbol.toLowerCase()) ??
+      sortedTerms[0] ??
+      symbol.toLowerCase();
+
+    return {
+      symbol,
+      searchTerm: primaryTerm || symbol,
+      primaryTerm: primaryTerm || symbol.toLowerCase(),
+      terms: sortedTerms,
+    };
+  }
+
+  private extractSlugFromSourceId(sourceId: string): string | null {
+    if (!sourceId || !sourceId.includes(':')) {
+      return null;
+    }
+    const slug = sourceId.split(':')[1]?.trim().toLowerCase();
+    if (!slug) {
+      return null;
+    }
+    return slug;
+  }
+
+  private getSymbolAliases(symbol: string): string[] {
+    const map: Record<string, string[]> = {
+      UNI: ['uniswap'],
+      LINK: ['chainlink'],
+    };
+    return map[symbol] ?? [];
+  }
+
+  private containsWholeTerm(text: string, term: string): boolean {
+    const normalizedText = text.trim().toLowerCase();
+    const normalizedTerm = term.trim().toLowerCase();
+    if (!normalizedText || !normalizedTerm) {
+      return false;
+    }
+    const escapedTerm = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(^|[^a-z0-9])${escapedTerm}([^a-z0-9]|$)`, 'i');
+    return pattern.test(normalizedText);
   }
 
   private toCategory(title: string, tags: string[]): NewsItem['category'] {
@@ -253,9 +367,24 @@ export class NewsService {
   }
 
   private toIsoTime(value: unknown): string | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const maybeSeconds = value > 1e12 ? value : value * 1000;
+      const parsed = new Date(maybeSeconds);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+      return null;
+    }
+
     if (typeof value !== 'string' || !value.trim()) {
       return null;
     }
+
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      return this.toIsoTime(asNumber);
+    }
+
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
       return null;

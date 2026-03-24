@@ -12,10 +12,11 @@ import {
   IntentOutput,
   PlanOutput,
   ReportOutput,
+  WorkflowNodeExecutionMeta,
+  WorkflowNodeStatus,
   WorkflowRunResult,
 } from '../../../data/contracts/workflow-contracts';
 import { AlertsService } from '../../risk/alerts/alerts.service';
-import { StrategyService } from '../../strategy/strategy.service';
 import { IntentNodeService } from '../nodes/intent-node.service';
 import { PlanningNodeService } from '../nodes/planning-node.service';
 import { DataExecutorNodeService } from '../nodes/data-executor-node.service';
@@ -28,6 +29,8 @@ type RunWorkflowInput = {
   timeWindow: '24h' | '7d';
   preferredChain: string | null;
   identity: AnalyzeIdentity;
+  intent: IntentOutput;
+  intentMeta?: WorkflowNodeExecutionMeta;
 };
 
 export type WorkflowStage =
@@ -38,14 +41,16 @@ export type WorkflowStage =
   | 'analysis'
   | 'report';
 
+export type WorkflowStageStatus = 'started' | 'completed';
+
 export type WorkflowStageEvent = {
   stage: WorkflowStage;
+  status: WorkflowStageStatus;
   timestamp: string;
 };
 
 type WorkflowRunOptions = {
-  onStageCompleted?: (event: WorkflowStageEvent) => void;
-  intentOverride?: IntentOutput;
+  onStageEvent?: (event: WorkflowStageEvent) => void;
 };
 
 const WorkflowStateAnnotation = Annotation.Root({
@@ -53,7 +58,7 @@ const WorkflowStateAnnotation = Annotation.Root({
   timeWindow: Annotation<'24h' | '7d'>(),
   preferredChain: Annotation<string | null>(),
   identity: Annotation<AnalyzeIdentity>(),
-  onStageCompleted: Annotation<
+  onStageEvent: Annotation<
     ((event: WorkflowStageEvent) => void) | undefined
   >(),
   intent: Annotation<IntentOutput>(),
@@ -63,6 +68,7 @@ const WorkflowStateAnnotation = Annotation.Root({
   strategy: Annotation<StrategySnapshot>(),
   analysis: Annotation<AnalysisOutput>(),
   report: Annotation<ReportOutput>(),
+  nodeStatus: Annotation<WorkflowNodeStatus>(),
 });
 
 type WorkflowGraphState = typeof WorkflowStateAnnotation.State;
@@ -77,7 +83,6 @@ export class AnalysisWorkflowService {
     private readonly planningNode: PlanningNodeService,
     private readonly dataExecutorNode: DataExecutorNodeService,
     private readonly alerts: AlertsService,
-    private readonly strategy: StrategyService,
     private readonly analysisNode: AnalysisNodeService,
     private readonly reportNode: ReportNodeService,
   ) {
@@ -94,7 +99,20 @@ export class AnalysisWorkflowService {
     preferredChain: string | null;
     memo?: IntentMemoSnapshot | null;
   }): Promise<IntentOutput> {
-    return this.intentNode.parse(input);
+    const result = await this.parseIntentWithMeta(input);
+    return result.intent;
+  }
+
+  async parseIntentWithMeta(input: {
+    query: string;
+    timeWindow: '24h' | '7d';
+    preferredChain: string | null;
+    memo?: IntentMemoSnapshot | null;
+  }): Promise<{
+    intent: IntentOutput;
+    meta: WorkflowNodeExecutionMeta;
+  }> {
+    return this.intentNode.parseWithMeta(input);
   }
 
   async run(
@@ -106,8 +124,13 @@ export class AnalysisWorkflowService {
       timeWindow: input.timeWindow,
       preferredChain: input.preferredChain,
       identity: input.identity,
-      intent: options?.intentOverride,
-      onStageCompleted: options?.onStageCompleted,
+      intent: input.intent,
+      nodeStatus: input.intentMeta
+        ? {
+            intent: input.intentMeta,
+          }
+        : undefined,
+      onStageEvent: options?.onStageEvent,
     })) as WorkflowGraphState;
 
     const intent = this.requireField(
@@ -138,6 +161,7 @@ export class AnalysisWorkflowService {
       state.report as ReportOutput | undefined,
       'report',
     );
+    const nodeStatus = (state.nodeStatus as WorkflowNodeStatus | undefined) ?? {};
 
     return {
       ...execution.data,
@@ -148,39 +172,37 @@ export class AnalysisWorkflowService {
       strategy,
       analysis,
       report,
+      nodeStatus,
     };
   }
 
   private buildGraph() {
     return new StateGraph(WorkflowStateAnnotation)
-      .addNode('intent', async (state: WorkflowGraphState) => {
-        const existingIntent = state.intent as IntentOutput | undefined;
-        const intent =
-          existingIntent ??
-          (await this.intentNode.parse({
-            query: state.query,
-            timeWindow: state.timeWindow,
-            preferredChain: state.preferredChain,
-            memo: null,
-          }));
-        if (!existingIntent) {
-          this.emitStageCompleted(state, 'intent');
-        }
-        return { intent };
-      })
-      .addNode('planning', async (state: WorkflowGraphState) => {
+      .addNode('n_planning', async (state: WorkflowGraphState) => {
+        this.emitStageEvent(state, 'planning', 'started');
         const intent = this.requireField(
           state.intent as IntentOutput | undefined,
           'intent',
         );
-        const plan = await this.planningNode.build({
+        const planResult = await this.planningNode.buildWithMeta({
           intent,
           identity: state.identity,
         });
-        this.emitStageCompleted(state, 'planning');
-        return { plan };
+        this.emitStageEvent(state, 'planning', 'completed');
+        return {
+          plan: planResult.plan,
+          nodeStatus: {
+            ...((state.nodeStatus as WorkflowNodeStatus | undefined) ?? {}),
+            planning: planResult.meta,
+          },
+        };
       })
-      .addNode('executor', async (state: WorkflowGraphState) => {
+      .addNode('n_executor', async (state: WorkflowGraphState) => {
+        this.emitStageEvent(state, 'executor', 'started');
+        const intent = this.requireField(
+          state.intent as IntentOutput | undefined,
+          'intent',
+        );
         const plan = this.requireField(
           state.plan as PlanOutput | undefined,
           'plan',
@@ -189,11 +211,14 @@ export class AnalysisWorkflowService {
           plan,
           identity: state.identity,
           timeWindow: state.timeWindow,
+          objective: intent.objective,
+          taskType: intent.taskType,
         });
-        this.emitStageCompleted(state, 'executor');
+        this.emitStageEvent(state, 'executor', 'completed');
         return { execution };
       })
-      .addNode('risk_strategy', async (state: WorkflowGraphState) => {
+      .addNode('n_risk_strategy', async (state: WorkflowGraphState) => {
+        this.emitStageEvent(state, 'risk_strategy', 'started');
         const execution = this.requireField(
           state.execution as ExecutionOutput | undefined,
           'execution',
@@ -205,19 +230,11 @@ export class AnalysisWorkflowService {
           liquidity: execution.data.liquidity,
           tokenomics: execution.data.tokenomics,
         });
-        const strategy = this.strategy.evaluate({
-          price: execution.data.market.price,
-          technical: execution.data.technical,
-          onchain: execution.data.onchain.cexNetflow,
-          security: execution.data.security,
-          liquidity: execution.data.liquidity,
-          tokenomics: execution.data.tokenomics,
-          alerts,
-        });
-        this.emitStageCompleted(state, 'risk_strategy');
-        return { alerts, strategy };
+        this.emitStageEvent(state, 'risk_strategy', 'completed');
+        return { alerts };
       })
-      .addNode('analysis', async (state: WorkflowGraphState) => {
+      .addNode('n_analysis', async (state: WorkflowGraphState) => {
+        this.emitStageEvent(state, 'analysis', 'started');
         const intent = this.requireField(
           state.intent as IntentOutput | undefined,
           'intent',
@@ -234,21 +251,27 @@ export class AnalysisWorkflowService {
           state.alerts as AlertsSnapshot | undefined,
           'alerts',
         );
-        const strategy = this.requireField(
-          state.strategy as StrategySnapshot | undefined,
-          'strategy',
-        );
-        const analysis = await this.analysisNode.analyze({
+        const analysisResult = await this.analysisNode.analyzeWithMeta({
           intent,
           plan,
           execution,
           alerts,
-          strategy,
         });
-        this.emitStageCompleted(state, 'analysis');
-        return { analysis };
+        const strategy = this.analysisNode.toStrategySnapshot(
+          analysisResult.analysis,
+        );
+        this.emitStageEvent(state, 'analysis', 'completed');
+        return {
+          analysis: analysisResult.analysis,
+          strategy,
+          nodeStatus: {
+            ...((state.nodeStatus as WorkflowNodeStatus | undefined) ?? {}),
+            analysis: analysisResult.meta,
+          },
+        };
       })
-      .addNode('report', async (state: WorkflowGraphState) => {
+      .addNode('n_report', async (state: WorkflowGraphState) => {
+        this.emitStageEvent(state, 'report', 'started');
         const intent = this.requireField(
           state.intent as IntentOutput | undefined,
           'intent',
@@ -265,39 +288,41 @@ export class AnalysisWorkflowService {
           state.alerts as AlertsSnapshot | undefined,
           'alerts',
         );
-        const strategy = this.requireField(
-          state.strategy as StrategySnapshot | undefined,
-          'strategy',
-        );
-        const report = await this.reportNode.render({
+        const reportResult = await this.reportNode.renderWithMeta({
           intent,
           execution,
           analysis,
           alerts,
-          strategy,
         });
-        this.emitStageCompleted(state, 'report');
-        return { report };
+        this.emitStageEvent(state, 'report', 'completed');
+        return {
+          report: reportResult.report,
+          nodeStatus: {
+            ...((state.nodeStatus as WorkflowNodeStatus | undefined) ?? {}),
+            report: reportResult.meta,
+          },
+        };
       })
-      .addEdge(START, 'intent')
-      .addEdge('intent', 'planning')
-      .addEdge('planning', 'executor')
-      .addEdge('executor', 'risk_strategy')
-      .addEdge('risk_strategy', 'analysis')
-      .addEdge('analysis', 'report')
-      .addEdge('report', END)
+      .addEdge(START, 'n_planning')
+      .addEdge('n_planning', 'n_executor')
+      .addEdge('n_executor', 'n_risk_strategy')
+      .addEdge('n_risk_strategy', 'n_analysis')
+      .addEdge('n_analysis', 'n_report')
+      .addEdge('n_report', END)
       .compile();
   }
 
-  private emitStageCompleted(
+  private emitStageEvent(
     state: WorkflowGraphState,
     stage: WorkflowStage,
+    status: WorkflowStageStatus,
   ): void {
-    const callback = state.onStageCompleted as
+    const callback = state.onStageEvent as
       | ((event: WorkflowStageEvent) => void)
       | undefined;
     callback?.({
       stage,
+      status,
       timestamp: new Date().toISOString(),
     });
   }

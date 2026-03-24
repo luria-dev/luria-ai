@@ -14,7 +14,11 @@ type RequestLike = {
 };
 
 type ResponseLike = {
-  header: (name: string, value: string) => unknown;
+  header?: (name: string, value: string) => unknown;
+  setHeader?: (name: string, value: string) => unknown;
+  raw?: {
+    setHeader?: (name: string, value: string) => unknown;
+  };
 };
 
 function normalizeHeader(value: HeaderValue): string | undefined {
@@ -43,8 +47,8 @@ export class RequestContextMiddleware implements NestMiddleware {
           ? String(userIdValue)
           : undefined;
 
-    res.header('x-request-id', requestId);
-    res.header('x-trace-id', traceId);
+    this.setResponseHeader(res, 'x-request-id', requestId);
+    this.setResponseHeader(res, 'x-trace-id', traceId);
 
     requestLogContext.run(
       {
@@ -56,5 +60,23 @@ export class RequestContextMiddleware implements NestMiddleware {
       },
       next,
     );
+  }
+
+  private setResponseHeader(
+    res: ResponseLike,
+    name: string,
+    value: string,
+  ): void {
+    if (typeof res.header === 'function') {
+      res.header(name, value);
+      return;
+    }
+    if (typeof res.setHeader === 'function') {
+      res.setHeader(name, value);
+      return;
+    }
+    if (typeof res.raw?.setHeader === 'function') {
+      res.raw.setHeader(name, value);
+    }
   }
 }

@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    ports:
+      - "9527:3000"
     env_file:
       - .env.${LURIA_ENV:-dev}
     depends_on:
@@ -34,7 +36,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["sh", "-c", "pnpm prisma migrate deploy"]
+    command: ["sh", "-c", "pnpm prisma db push --skip-generate"]
 
   postgres:
     image: postgres:16-alpine

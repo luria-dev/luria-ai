@@ -5,10 +5,92 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model Asset {
+  id           String         @id @default(uuid())
+  symbol       String
+  chain        String
+  tokenAddress String?        @map("token_address")
+  sourceId     String         @unique @map("source_id")
+  displayName  String?        @map("display_name")
+  isNative     Boolean        @default(false) @map("is_native")
+  status       String         @default("active")
+  metadata     Json?
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  snapshots    DataSnapshot[]
+
+  @@unique([chain, tokenAddress])
+  @@index([symbol, chain])
+  @@index([displayName])
+  @@map("assets")
+}
+
+model SearchSnapshot {
+  id              String    @id @default(uuid())
+  query           String
+  normalizedQuery String    @map("normalized_query")
+  preferredChain  String?   @map("preferred_chain")
+  cacheKey        String    @unique @map("cache_key")
+  payload         Json
+  resultCount     Int       @default(0) @map("result_count")
+  fetchedAt       DateTime  @map("fetched_at")
+  expiresAt       DateTime  @map("expires_at")
+  lastAccessedAt  DateTime? @map("last_accessed_at")
+  hitCount        Int       @default(0) @map("hit_count")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([normalizedQuery, preferredChain])
+  @@index([expiresAt])
+  @@map("search_snapshots")
+}
+
+model DataSnapshot {
+  id             String               @id @default(uuid())
+  assetId        String               @map("asset_id")
+  dataType       String               @map("data_type")
+  timeWindow     String?              @map("time_window")
+  source         String
+  cacheKey       String               @unique @map("cache_key")
+  payload        Json
+  degraded       Boolean              @default(false)
+  degradeReason  String?              @map("degrade_reason")
+  fetchedAt      DateTime             @map("fetched_at")
+  expiresAt      DateTime             @map("expires_at")
+  lastAccessedAt DateTime?            @map("last_accessed_at")
+  hitCount       Int                  @default(0) @map("hit_count")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  asset          Asset                @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, dataType, timeWindow])
+  @@index([expiresAt])
+  @@index([dataType, expiresAt])
+  @@map("data_snapshots")
+}
+
+model CachePolicy {
+  id                         String   @id @default(uuid())
+  dataType                   String   @map("data_type")
+  objective                  String
+  taskType                   String   @map("task_type")
+  ttlSeconds                 Int      @map("ttl_seconds")
+  staleWhileRevalidateSeconds Int     @default(0) @map("stale_while_revalidate_seconds")
+  maxStaleSeconds            Int      @default(0) @map("max_stale_seconds")
+  enabled                    Boolean  @default(true)
+  notes                      String?
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  @@unique([dataType, objective, taskType])
+  @@map("cache_policies")
 }

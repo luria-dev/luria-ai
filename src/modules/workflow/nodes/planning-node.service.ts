@@ -4,6 +4,7 @@ import {
   PlanOutput,
   planOutputSchema,
   PlanRequirement,
+  WorkflowNodeExecutionMeta,
 } from '../../../data/contracts/workflow-contracts';
 import type { AnalyzeIdentity } from '../../../data/contracts/analyze-contracts';
 import { LlmRuntimeService } from '../runtime/llm-runtime.service';
@@ -20,6 +21,14 @@ export class PlanningNodeService {
   constructor(private readonly llmRuntime: LlmRuntimeService) {}
 
   async build(input: BuildPlanInput): Promise<PlanOutput> {
+    const result = await this.buildWithMeta(input);
+    return result.plan;
+  }
+
+  async buildWithMeta(input: BuildPlanInput): Promise<{
+    plan: PlanOutput;
+    meta: WorkflowNodeExecutionMeta;
+  }> {
     const fallback = this.buildDeterministicPlan(input.intent);
     const context: PlanningPromptContext = {
       query: input.intent.userQuery,
@@ -40,10 +49,12 @@ export class PlanningNodeService {
         'price',
         'news',
         'tokenomics',
+        'fundamentals',
         'technical',
         'onchain',
         'security',
         'liquidity',
+        'sentiment',
       ],
       priorityRule: {
         high: 'required for hard constraints and core objective',
@@ -53,26 +64,33 @@ export class PlanningNodeService {
       hardConstraints: [
         'security and liquidity must be included for tradability risk controls',
         'price should always be included',
+        'sentiment should always be included for market context',
       ],
       sourceCatalog: {
-        price: ['coinmarketcap'],
-        technical: ['coinmarketcap'],
-        liquidity: ['cmc_dex'],
-        security: ['blockaid'],
-        onchain: ['coinglass'],
+        price: ['coingecko'],
+        technical: ['coingecko'],
+        liquidity: ['geckoterminal'],
+        security: ['goplus'],
+        onchain: ['santiment'],
         tokenomics: ['tokenomist'],
-        news: ['messari'],
+        fundamentals: ['rootdata'],
+        news: ['coindesk'],
+        sentiment: ['santiment'],
       },
     };
     const prompts = buildPlanningPrompts(context);
 
-    return this.llmRuntime.generateStructured({
+    const result = await this.llmRuntime.generateStructuredWithMeta({
       nodeName: 'planning',
       systemPrompt: prompts.systemPrompt,
       userPrompt: prompts.userPrompt,
       schema: planOutputSchema,
       fallback: () => fallback,
     });
+    return {
+      plan: result.data,
+      meta: result.meta,
+    };
   }
 
   private buildDeterministicPlan(intent: IntentOutput): PlanOutput {
@@ -89,22 +107,29 @@ export class PlanningNodeService {
       dataType: 'price',
       required: true,
       priority: 'high',
-      sourceHint: ['coinmarketcap'],
+      sourceHint: ['coingecko'],
       reason: 'Base price context is required for any market judgment.',
     });
     upsert({
       dataType: 'security',
       required: true,
       priority: 'high',
-      sourceHint: ['blockaid'],
+      sourceHint: ['goplus'],
       reason: 'Security redlines are hard constraints for strategy.',
     });
     upsert({
       dataType: 'liquidity',
       required: true,
       priority: 'high',
-      sourceHint: ['cmc_dex'],
+      sourceHint: ['geckoterminal'],
       reason: 'Liquidity quality gates tradability and slippage risk.',
+    });
+    upsert({
+      dataType: 'sentiment',
+      required: true,
+      priority: 'medium',
+      sourceHint: ['santiment'],
+      reason: 'Social sentiment and developer activity provide community health signals.',
     });
 
     if (
@@ -115,7 +140,7 @@ export class PlanningNodeService {
         dataType: 'news',
         required: true,
         priority: 'high',
-        sourceHint: ['messari'],
+        sourceHint: ['coindesk'],
         reason: 'Requested intent focuses on latest events and announcements.',
       });
     }
@@ -132,13 +157,21 @@ export class PlanningNodeService {
         reason: 'Tokenomics evidence is required for supply/unlock risk.',
       });
     } else {
-      upsert({
-        dataType: 'tokenomics',
-        required: true,
-        priority: 'medium',
-        sourceHint: ['tokenomist'],
-        reason: 'Tokenomics evidence stabilizes confidence in final verdict.',
-      });
+    upsert({
+      dataType: 'tokenomics',
+      required: true,
+      priority: 'medium',
+      sourceHint: ['tokenomist'],
+      reason: 'Tokenomics evidence stabilizes confidence in final verdict.',
+    });
+
+    upsert({
+      dataType: 'fundamentals',
+      required: true,
+      priority: 'low',
+      sourceHint: ['rootdata'],
+      reason: 'Project fundamentals and backing add context to narrative strength.',
+    });
     }
 
     if (
@@ -149,14 +182,14 @@ export class PlanningNodeService {
         dataType: 'technical',
         required: true,
         priority: 'high',
-        sourceHint: ['coinmarketcap'],
+        sourceHint: ['coingecko'],
         reason: 'Entry/exit intent requires technical indicator confirmation.',
       });
       upsert({
         dataType: 'onchain',
         required: true,
         priority: 'high',
-        sourceHint: ['coinglass'],
+        sourceHint: ['santiment'],
         reason: 'Capital flow confirms buy/sell pressure for timing decisions.',
       });
     } else {
@@ -164,14 +197,14 @@ export class PlanningNodeService {
         dataType: 'technical',
         required: true,
         priority: 'medium',
-        sourceHint: ['coinmarketcap'],
+        sourceHint: ['coingecko'],
         reason: 'Technical signal provides directional context.',
       });
       upsert({
         dataType: 'onchain',
         required: true,
         priority: 'medium',
-        sourceHint: ['coinglass'],
+        sourceHint: ['santiment'],
         reason: 'Onchain flow supports pressure confirmation.',
       });
     }
