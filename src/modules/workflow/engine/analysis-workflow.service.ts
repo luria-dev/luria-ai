@@ -31,6 +31,7 @@ type RunWorkflowInput = {
   identity: AnalyzeIdentity;
   intent: IntentOutput;
   intentMeta?: WorkflowNodeExecutionMeta;
+  renderPerTargetReport?: boolean;
 };
 
 export type WorkflowStage =
@@ -68,6 +69,7 @@ const WorkflowStateAnnotation = Annotation.Root({
   strategy: Annotation<StrategySnapshot>(),
   analysis: Annotation<AnalysisOutput>(),
   report: Annotation<ReportOutput>(),
+  renderPerTargetReport: Annotation<boolean>(),
   nodeStatus: Annotation<WorkflowNodeStatus>(),
 });
 
@@ -125,6 +127,7 @@ export class AnalysisWorkflowService {
       preferredChain: input.preferredChain,
       identity: input.identity,
       intent: input.intent,
+      renderPerTargetReport: input.renderPerTargetReport ?? true,
       nodeStatus: input.intentMeta
         ? {
             intent: input.intentMeta,
@@ -288,6 +291,29 @@ export class AnalysisWorkflowService {
           state.alerts as AlertsSnapshot | undefined,
           'alerts',
         );
+        const renderPerTargetReport =
+          (state.renderPerTargetReport as boolean | undefined) ?? true;
+        if (!renderPerTargetReport) {
+          this.emitStageEvent(state, 'report', 'completed');
+          return {
+            report: this.reportNode.buildDeterministicOnly({
+              intent,
+              execution,
+              analysis,
+              alerts,
+            }),
+            nodeStatus: {
+              ...((state.nodeStatus as WorkflowNodeStatus | undefined) ?? {}),
+              report: {
+                llmStatus: 'skipped',
+                attempts: 0,
+                schemaCorrection: false,
+                failureReason: 'comparison_mode_skip',
+                model: null,
+              },
+            },
+          };
+        }
         const reportResult = await this.reportNode.renderWithMeta({
           intent,
           execution,

@@ -35,34 +35,42 @@ type ParseStructuredFailure = {
   issues: string[];
 };
 
-type ChatCompletionMessage = {
-  content?:
-    | string
-    | Array<{
-        type?: string;
-        text?: string;
-      }>;
-  reasoning_content?: string;
-  refusal?: string | null;
-  tool_calls?: unknown[];
-};
-
-type ChatCompletionPayload = {
+type ResponsesPayload = {
   id?: string;
   model?: string;
+  output_text?: string;
   usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
     total_tokens?: number;
   };
-  choices?: Array<{
-    finish_reason?: string | null;
-    message?: ChatCompletionMessage;
+  output?: Array<{
+    type?: string;
+    role?: string;
+    status?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
   }>;
+  error?: {
+    message?: string;
+    code?: string;
+  };
 };
 
 const SUPPORTED_CHAT_MODELS = ['gpt-5.4', 'qwen3-max'] as const;
 type SupportedChatModel = (typeof SUPPORTED_CHAT_MODELS)[number];
+type SupportedLlmProvider = 'openai' | 'dashscope';
+type ResolvedRequestOptions = {
+  provider: SupportedLlmProvider;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  logicalModel: SupportedChatModel;
+  maxTokens: number;
+  timeoutMs: number;
+};
 
 class LlmRequestError extends Error {
   constructor(
@@ -85,11 +93,6 @@ export class LlmRuntimeService {
     800,
   );
   private readonly mode = (process.env.LURIA_LLM_MODE ?? 'mock').toLowerCase();
-  private readonly baseUrl = this.normalizeBaseUrl(
-    process.env.LURIA_LLM_BASE_URL ??
-      process.env.OPENAI_BASE_URL ??
-      'https://api.n1n.ai/v1',
-  );
   private readonly model = this.resolveModel(
     process.env.LURIA_LLM_MODEL ?? 'gpt-5.4',
   );
@@ -143,36 +146,19 @@ export class LlmRuntimeService {
       };
     }
 
-    const apiKey = process.env.LURIA_LLM_API_KEY ?? process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      this.logger.warn(
-        `[${input.nodeName}] LURIA_LLM_API_KEY is missing, fallback to mock.`,
-      );
-      return {
-        data: input.fallback(),
-        meta: {
-          llmStatus: 'fallback',
-          attempts: 0,
-          schemaCorrection: false,
-          failureReason: 'missing_api_key',
-          model: this.resolveModelForNode(input.nodeName),
-        },
-      };
-    }
-
     try {
       let totalAttempts = 0;
       let schemaCorrection = false;
       const requestOptions = this.resolveRequestOptions(input);
       const activeModel = requestOptions.model;
+
       if (this.shouldLogVerboseNode(input.nodeName)) {
         this.logger.log(
-          `[${input.nodeName}] Request config model=${activeModel} systemLen=${input.systemPrompt.length} userLen=${input.userPrompt.length} maxTokens=${requestOptions.maxTokens} timeoutMs=${requestOptions.timeoutMs}`,
+          `[${input.nodeName}] Request config provider=${requestOptions.provider} model=${activeModel} logicalModel=${requestOptions.logicalModel} systemLen=${input.systemPrompt.length} userLen=${input.userPrompt.length} maxTokens=${requestOptions.maxTokens} timeoutMs=${requestOptions.timeoutMs}`,
         );
       }
 
-      const first = await this.callChatCompletionsWithRetry(
-        apiKey,
+      const first = await this.callResponsesWithRetry(
         input.nodeName,
         input.systemPrompt,
         input.userPrompt,
@@ -196,8 +182,7 @@ export class LlmRuntimeService {
       this.logger.warn(
         `[${input.nodeName}] First pass schema invalid, retrying with correction prompt. Issues: ${firstParsed.issues.join(' | ')}`,
       );
-      const second = await this.callChatCompletionsWithRetry(
-        apiKey,
+      const second = await this.callResponsesWithRetry(
         input.nodeName,
         [
           input.systemPrompt,
@@ -248,8 +233,7 @@ export class LlmRuntimeService {
         data: input.fallback(),
         meta: {
           llmStatus: 'fallback',
-          attempts:
-            error instanceof LlmRequestError ? error.attempts : 1,
+          attempts: error instanceof LlmRequestError ? error.attempts : 1,
           schemaCorrection: false,
           failureReason: message,
           model: this.resolveModelForNode(input.nodeName),
@@ -258,20 +242,18 @@ export class LlmRuntimeService {
     }
   }
 
-  private async callChatCompletionsWithRetry(
-    apiKey: string,
+  private async callResponsesWithRetry(
     nodeName: string,
     systemPrompt: string,
     userPrompt: string,
-    requestOptions: { model: SupportedChatModel; maxTokens: number; timeoutMs: number },
+    requestOptions: ResolvedRequestOptions,
   ): Promise<{ content: string; attempts: number }> {
     const totalAttempts = Math.max(1, this.retryAttempts);
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
       try {
-        const content = await this.callChatCompletions(
-          apiKey,
+        const content = await this.callResponses(
           nodeName,
           systemPrompt,
           userPrompt,
@@ -298,14 +280,13 @@ export class LlmRuntimeService {
     throw new LlmRequestError(message, totalAttempts);
   }
 
-  private async callChatCompletions(
-    apiKey: string,
+  private async callResponses(
     nodeName: string,
     systemPrompt: string,
     userPrompt: string,
-    requestOptions: { model: SupportedChatModel; maxTokens: number; timeoutMs: number },
+    requestOptions: ResolvedRequestOptions,
   ): Promise<string> {
-    const endpoint = `${this.baseUrl}/chat/completions`;
+    const endpoint = `${requestOptions.baseUrl}/responses`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), requestOptions.timeoutMs);
 
@@ -314,17 +295,17 @@ export class LlmRuntimeService {
         method: 'POST',
         signal: controller.signal,
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${requestOptions.apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: requestOptions.model,
-          temperature: this.temperature,
-          max_tokens: requestOptions.maxTokens,
-          messages: [
+          input: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
+          max_output_tokens: requestOptions.maxTokens,
+          temperature: this.temperature,
         }),
       });
 
@@ -335,9 +316,8 @@ export class LlmRuntimeService {
         );
       }
 
-      const payload = (await response.json()) as ChatCompletionPayload;
-      const firstChoice = payload.choices?.[0];
-      const content = this.extractContent(firstChoice?.message);
+      const payload = (await response.json()) as ResponsesPayload;
+      const content = this.extractResponseText(payload);
 
       if (this.shouldLogVerboseNode(nodeName)) {
         this.logger.log(
@@ -345,28 +325,24 @@ export class LlmRuntimeService {
             `[${nodeName}] Response meta`,
             `id=${payload.id ?? 'unknown'}`,
             `model=${payload.model ?? requestOptions.model}`,
-            `finishReason=${firstChoice?.finish_reason ?? 'unknown'}`,
-            `promptTokens=${payload.usage?.prompt_tokens ?? 'n/a'}`,
-            `completionTokens=${payload.usage?.completion_tokens ?? 'n/a'}`,
+            `status=${payload.output?.[0]?.status ?? 'unknown'}`,
+            `promptTokens=${payload.usage?.input_tokens ?? 'n/a'}`,
+            `completionTokens=${payload.usage?.output_tokens ?? 'n/a'}`,
             `totalTokens=${payload.usage?.total_tokens ?? 'n/a'}`,
             `contentLength=${content.length}`,
-            `hasReasoning=${Boolean(firstChoice?.message?.reasoning_content)}`,
-            `hasToolCalls=${Boolean(firstChoice?.message?.tool_calls?.length)}`,
-            `hasRefusal=${Boolean(firstChoice?.message?.refusal)}`,
+            `hasOutput=${Boolean(payload.output?.length)}`,
           ].join(' | '),
         );
       }
 
       if (content.trim().length === 0) {
         if (this.shouldLogVerboseNode(nodeName)) {
-          const message = firstChoice?.message;
           this.logger.warn(
             [
               `[${nodeName}] Empty content details`,
-              `messageKeys=${message ? Object.keys(message).join(',') : 'none'}`,
-              `contentType=${Array.isArray(message?.content) ? 'array' : typeof message?.content}`,
-              `reasoningLength=${message?.reasoning_content?.length ?? 0}`,
-              `refusalLength=${message?.refusal?.length ?? 0}`,
+              `outputLength=${payload.output?.length ?? 0}`,
+              `hasOutputText=${Boolean(payload.output_text)}`,
+              `errorCode=${payload.error?.code ?? 'none'}`,
             ].join(' | '),
           );
         }
@@ -460,36 +436,30 @@ export class LlmRuntimeService {
     return `${raw.slice(0, 4000)}...[truncated]`;
   }
 
-  private extractContent(message?: ChatCompletionMessage): string {
-    if (!message) {
-      return '';
+  private extractResponseText(payload: ResponsesPayload): string {
+    if (typeof payload.output_text === 'string' && payload.output_text.trim()) {
+      return payload.output_text.trim();
     }
 
-    if (typeof message.content === 'string') {
-      return message.content;
-    }
-
-    if (Array.isArray(message.content)) {
-      return message.content
-        .map((part) => {
-          if (typeof part?.text === 'string') {
-            return part.text;
-          }
-          return '';
-        })
-        .join('')
-        .trim();
+    for (const item of payload.output ?? []) {
+      for (const part of item.content ?? []) {
+        if (
+          (part.type === 'output_text' || part.type === 'text') &&
+          typeof part.text === 'string' &&
+          part.text.trim()
+        ) {
+          return part.text.trim();
+        }
+      }
     }
 
     return '';
   }
 
-  private resolveRequestOptions(input: GenerateStructuredInput<unknown>): {
-    model: SupportedChatModel;
-    maxTokens: number;
-    timeoutMs: number;
-  } {
-    const model = this.resolveModelForNode(input.nodeName);
+  private resolveRequestOptions(
+    input: GenerateStructuredInput<unknown>,
+  ): ResolvedRequestOptions {
+    const logicalModel = this.resolveModelForNode(input.nodeName);
     let defaultMaxTokens = this.maxTokens;
     let defaultTimeoutMs = this.timeoutMs;
 
@@ -501,11 +471,11 @@ export class LlmRuntimeService {
       defaultTimeoutMs = this.reportTimeoutMs;
     }
 
-    return {
-      model,
-      maxTokens: input.maxTokens ?? defaultMaxTokens,
-      timeoutMs: input.timeoutMs ?? defaultTimeoutMs,
-    };
+    return this.resolveProviderRequestOptions(
+      logicalModel,
+      input.maxTokens ?? defaultMaxTokens,
+      input.timeoutMs ?? defaultTimeoutMs,
+    );
   }
 
   private shouldLogVerboseNode(nodeName: string): boolean {
@@ -521,9 +491,7 @@ export class LlmRuntimeService {
 
   private resolveModel(raw: string): SupportedChatModel {
     const model = raw.trim();
-    if (
-      (SUPPORTED_CHAT_MODELS as readonly string[]).includes(model)
-    ) {
+    if ((SUPPORTED_CHAT_MODELS as readonly string[]).includes(model)) {
       return model as SupportedChatModel;
     }
 
@@ -555,11 +523,54 @@ export class LlmRuntimeService {
     return this.model;
   }
 
+  private resolveProviderRequestOptions(
+    logicalModel: SupportedChatModel,
+    maxTokens: number,
+    timeoutMs: number,
+  ): ResolvedRequestOptions {
+    if (logicalModel === 'gpt-5.4') {
+      const apiKey =
+        process.env.OPENAI_API_KEY?.trim() ??
+        process.env.LURIA_OPENAI_API_KEY?.trim() ??
+        process.env.LURIA_LLM_API_KEY?.trim();
+      if (!apiKey) {
+        throw new Error('missing_openai_api_key');
+      }
+      return {
+        provider: 'openai',
+        apiKey,
+        baseUrl: this.normalizeBaseUrl(
+          process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+        ),
+        model: logicalModel,
+        logicalModel,
+        maxTokens,
+        timeoutMs,
+      };
+    }
+
+    const apiKey =
+      process.env.DASHSCOPE_API_KEY?.trim() ??
+      process.env.LURIA_DASHSCOPE_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('missing_dashscope_api_key');
+    }
+    return {
+      provider: 'dashscope',
+      apiKey,
+      baseUrl: this.normalizeBaseUrl(
+        process.env.DASHSCOPE_BASE_URL ??
+          'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1',
+      ),
+      model: logicalModel,
+      logicalModel,
+      maxTokens,
+      timeoutMs,
+    };
+  }
+
   private normalizeBaseUrl(raw: string): string {
     const value = raw.trim();
-    if (!value) {
-      return 'https://api.n1n.ai/v1';
-    }
     return value.endsWith('/') ? value.slice(0, -1) : value;
   }
 

@@ -69,7 +69,9 @@ function buildTarget(params: BuildTargetParams): TargetPipeline {
 }
 
 describe('ComparisonService', () => {
-  const service = new ComparisonService();
+  const service = new ComparisonService({
+    generateStructuredWithMeta: jest.fn(),
+  } as never);
 
   it('should not choose winner when top score is tied', () => {
     const summary = service.buildComparisonSummary('A vs B', [

@@ -234,11 +234,44 @@ export const reportSectionSchema = z.object({
   points: z.array(z.string()).min(1),
 });
 
+export const reportAllocationWeightSchema = z.object({
+  symbol: z.string().min(1),
+  weightPct: z.number().min(0).max(100).nullable(),
+  rationale: z.string().min(1),
+});
+
+export const reportAllocationGuidanceSchema = z.object({
+  summary: z.string().min(1),
+  preferred: z.array(z.string()).default([]),
+  secondary: z.array(z.string()).default([]),
+  avoided: z.array(z.string()).default([]),
+  weights: z.array(reportAllocationWeightSchema).default([]),
+});
+
+export const reportScenarioSchema = z.object({
+  scenario: z.enum(['bull', 'base', 'bear']),
+  summary: z.string().min(1),
+  trigger: z.string().min(1),
+});
+
+export const reportMetaSchema = z.object({
+  keyTakeaway: z.string().min(1),
+  whyNow: z.array(z.string()).min(1),
+  actionGuidance: z.array(z.string()).default([]),
+  keyTriggers: z.array(z.string()).default([]),
+  invalidationSignals: z.array(z.string()).default([]),
+  dataQualityNotes: z.array(z.string()).default([]),
+  allocationGuidance: reportAllocationGuidanceSchema.optional(),
+  scenarioMap: z.array(reportScenarioSchema).default([]),
+});
+export type ReportMeta = z.infer<typeof reportMetaSchema>;
+
 export const reportOutputSchema = z.object({
   title: z.string().min(1),
   executiveSummary: z.string().min(1),
   body: z.string().min(1),
   sections: z.array(reportSectionSchema).min(1),
+  reportMeta: reportMetaSchema.optional(),
   verdict: z.enum(['BUY', 'SELL', 'HOLD', 'CAUTION', 'INSUFFICIENT_DATA']),
   confidence: z.number().min(0).max(1),
   disclaimer: z.string().min(1),

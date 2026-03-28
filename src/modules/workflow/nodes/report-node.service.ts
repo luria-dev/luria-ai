@@ -7,10 +7,9 @@ import {
   AnalysisOutput,
   ExecutionOutput,
   IntentOutput,
+  ReportMeta,
   ReportOutput,
   WorkflowNodeExecutionMeta,
-  reportOutputSchema,
-  reportSectionSchema,
 } from '../../../data/contracts/workflow-contracts';
 import { LlmRuntimeService } from '../runtime/llm-runtime.service';
 import { buildReportPrompts } from '../prompts';
@@ -35,6 +34,10 @@ type RenderReportInput = {
 @Injectable()
 export class ReportNodeService {
   constructor(private readonly llmRuntime: LlmRuntimeService) {}
+
+  buildDeterministicOnly(input: RenderReportInput): ReportOutput {
+    return this.buildDeterministicReport(input);
+  }
 
   async render(input: RenderReportInput): Promise<ReportOutput> {
     const result = await this.renderWithMeta(input);
@@ -164,16 +167,6 @@ export class ReportNodeService {
       ? `${execution.identity.symbol} 分析报告 - ${verdictLabel}`
       : `${execution.identity.symbol} Analysis - ${verdictLabel}`;
 
-    const priceStr = price.priceUsd !== null
-      ? `$${price.priceUsd < 1 ? price.priceUsd.toFixed(6) : price.priceUsd.toFixed(2)}`
-      : 'N/A';
-    const changeStr = price.change24hPct !== null
-      ? `${price.change24hPct >= 0 ? '+' : ''}${price.change24hPct.toFixed(2)}%`
-      : 'N/A';
-    const liquidityStr = liquidity.liquidityUsd !== null
-      ? `$${this.fmt(liquidity.liquidityUsd)}`
-      : 'N/A';
-
     const confidence = advisory.confidence ?? 0;
     const executiveSummary = [
       advisory.reason ?? 'No analysis available',
@@ -181,8 +174,6 @@ export class ReportNodeService {
         ? `${execution.identity.symbol} 当前更适合按「${verdictLabel}」理解，整体置信度 ${(confidence * 100).toFixed(0)}%。`
         : `${execution.identity.symbol} is best read as "${verdictLabel}" right now with ${(confidence * 100).toFixed(0)}% confidence.`,
     ].join('\n');
-
-    const sections: Array<{ heading: string; points: string[] }> = [];
 
     const keySignals: string[] = [];
     keySignals.push(
@@ -198,22 +189,23 @@ export class ReportNodeService {
       );
     }
 
-    sections.push({
-      heading: isZh ? '核心结论' : 'Core Takeaway',
-      points: keySignals,
-    });
-
     const marketContextPoints: string[] = [];
+    const marketLine = this.buildMarketContextLine(price, isZh);
+    if (marketLine) {
+      marketContextPoints.push(marketLine);
+    }
     marketContextPoints.push(
       isZh
-        ? `技术面整体偏 ${technical.summarySignal}，说明短线并没有形成很顺畅的单边趋势。`
-        : `The technical picture is ${technical.summarySignal}, which suggests the short-term trend is not cleanly one-sided.`,
+        ? `技术面整体偏 ${technical.summarySignal}，链上资金流表现为 ${onchain.signal.replace('_', ' ')}，市场情绪则偏 ${sentiment.signal}。`
+        : `Technicals read ${technical.summarySignal}, on-chain flow reads ${onchain.signal.replace('_', ' ')}, and sentiment remains ${sentiment.signal}.`,
     );
-    marketContextPoints.push(
-      isZh
-        ? `资金流层面表现为 ${onchain.signal.replace('_', ' ')}，市场情绪则偏 ${sentiment.signal}。`
-        : `Flow reads as ${onchain.signal.replace('_', ' ')} while sentiment is ${sentiment.signal}.`,
-    );
+    if (technical.rsi.value !== null) {
+      marketContextPoints.push(
+        isZh
+          ? `RSI 约为 ${technical.rsi.value.toFixed(1)}，这意味着短线并不处在特别舒服的追价位置。`
+          : `RSI is near ${technical.rsi.value.toFixed(1)}, which means the short-term setup is not especially comfortable for chasing.`,
+      );
+    }
     if (fundamentals.profile.name || fundamentals.profile.oneLiner) {
       marketContextPoints.push(
         isZh
@@ -228,11 +220,6 @@ export class ReportNodeService {
           : `Tokenomics do not currently point to an obviously destabilizing dilution profile.`,
       );
     }
-
-    sections.push({
-      heading: isZh ? '为什么得出这个判断' : 'Why This View',
-      points: marketContextPoints,
-    });
 
     const strategyPoints: string[] = [];
     if (advisory.buyZone) {
@@ -258,15 +245,15 @@ export class ReportNodeService {
       if (ts.supportLevels.length > 0) {
         strategyPoints.push(
           isZh
-            ? `更关键的支撑参考先看 ${ts.supportLevels.slice(0, 2).map((item) => item.label).join('、')}。`
-            : `The more important support references are ${ts.supportLevels.slice(0, 2).map((item) => item.label).join(', ')}.`,
+            ? `如果要继续观察回踩，先盯住最关键的支撑：${ts.supportLevels[0]?.label}。`
+            : `If pullback monitoring continues, start with the main support at ${ts.supportLevels[0]?.label}.`,
         );
       }
       if (ts.resistanceLevels.length > 0) {
         strategyPoints.push(
           isZh
-            ? `上方主要压力先看 ${ts.resistanceLevels.slice(0, 2).map((item) => item.label).join('、')}。`
-            : `The main overhead pressure sits around ${ts.resistanceLevels.slice(0, 2).map((item) => item.label).join(', ')}.`,
+            ? `上方最重要的压力先看 ${ts.resistanceLevels[0]?.label}，不要把压力位误判成趋势确认。`
+            : `The most important overhead pressure is ${ts.resistanceLevels[0]?.label}; avoid reading that area as confirmed trend too early.`,
         );
       }
     }
@@ -278,12 +265,50 @@ export class ReportNodeService {
       );
     }
 
-    sections.push({
-      heading: isZh ? '现在该怎么做' : 'What To Do Now',
-      points: strategyPoints,
-    });
-
+    const triggerPoints: string[] = [];
+    if (advisory.buyZone) {
+      triggerPoints.push(
+        isZh
+          ? `若后续重新转强，先看是否重新回到并站稳 ${advisory.buyZone}。`
+          : `If the setup turns constructive again, first watch whether price can reclaim and hold ${advisory.buyZone}.`,
+      );
+    }
+    if (advisory.sellZone) {
+      triggerPoints.push(
+        isZh
+          ? `若出现反弹，进入 ${advisory.sellZone} 仍更适合按防守思路处理。`
+          : `If a bounce appears, ${advisory.sellZone} remains the area to treat defensively.`,
+      );
+    }
+    if (ts?.supportLevels.length) {
+      triggerPoints.push(
+        isZh
+          ? `下方先看 ${ts.supportLevels[0]?.label}，这里守不住时，短线判断需要下修。`
+          : `Start with ${ts.supportLevels[0]?.label} on the downside; if that fails, the short-term read should be marked down.`,
+      );
+    }
+    if (ts?.resistanceLevels.length) {
+      triggerPoints.push(
+        isZh
+          ? `上方先看 ${ts.resistanceLevels[0]?.label}，只有明显站上后，才适合重新讨论更积极的判断。`
+          : `Start with ${ts.resistanceLevels[0]?.label} on the upside; only a clear break above it justifies a more constructive reassessment.`,
+      );
+    }
+    if (ts?.stopLoss) {
+      triggerPoints.push(
+        isZh
+          ? `若价格触发 ${ts.stopLoss.label}，这次判断应立即重审。`
+          : `If ${ts.stopLoss.label} is triggered, this view should be re-evaluated immediately.`,
+      );
+    }
     const qualityPoints: string[] = [];
+    if (advisory.hardBlocks.length > 0) {
+      qualityPoints.push(
+        isZh
+          ? `当前存在硬性限制：${advisory.hardBlocks.join('、')}。`
+          : `Hard blocks remain active: ${advisory.hardBlocks.join(', ')}.`,
+      );
+    }
     if (alerts.redCount > 0) {
       qualityPoints.push(
         isZh ? `存在 ${alerts.redCount} 条严重风险告警。` : `${alerts.redCount} critical risk alerts are active.`,
@@ -309,6 +334,25 @@ export class ReportNodeService {
           : `Missing evidence remains: ${execution.missingEvidence.join(', ')}.`,
       );
     }
+    if (security.riskLevel !== 'low') {
+      qualityPoints.push(
+        isZh
+          ? `安全风险等级为 ${security.riskLevel}，因此不适合把这次结论理解得过于乐观。`
+          : `Security risk is ${security.riskLevel}, so this read should not be treated too optimistically.`,
+      );
+    }
+    if (liquidity.rugpullRiskSignal !== 'low' || liquidity.withdrawalRiskFlag) {
+      qualityPoints.push(
+        isZh
+          ? '流动性质量存在额外顾虑，执行时需要优先考虑滑点与退出难度。'
+          : 'Liquidity quality carries added concerns, so slippage and exit conditions need priority attention.',
+      );
+    }
+    qualityPoints.push(
+      isZh
+        ? '若后续风险告警继续增加、关键支撑失守，或者降级数据迟迟没有修复，这次判断就不该继续沿用。'
+        : 'If alerts continue rising, key support breaks, or degraded inputs do not recover, this view should not be carried forward unchanged.',
+    );
     if (qualityPoints.length === 0) {
       qualityPoints.push(
         isZh ? '核心证据基本完整，这次结论可直接作为当前判断参考。'
@@ -316,28 +360,21 @@ export class ReportNodeService {
       );
     }
 
-    sections.push({
-      heading: isZh ? '风险与限制' : 'Risk and Limits',
-      points: qualityPoints,
-    });
-
-    const conclusionPoints = [
-      isZh
-        ? `综合现有信息，当前最合理的理解仍然是「${verdictLabel}」。`
-        : `Given the available evidence, the most reasonable read remains "${verdictLabel}".`,
-      isZh
-        ? '如果后续出现更清晰的确认信号或补齐降级数据，再重新评估会更稳妥。'
-        : 'A re-check is preferable once confirmation improves or degraded inputs are restored.',
-    ];
-    sections.push({
-      heading: isZh ? '最后一句话' : 'Bottom Line',
-      points: conclusionPoints,
-    });
+    const reportMeta: ReportMeta = {
+      keyTakeaway: keySignals[0] ?? executiveSummary,
+      whyNow: marketContextPoints,
+      actionGuidance: strategyPoints,
+      keyTriggers: triggerPoints,
+      invalidationSignals: qualityPoints.slice(-1),
+      dataQualityNotes: qualityPoints.slice(0, -1),
+      scenarioMap: [],
+    };
+    const sections = this.buildSectionsFromReportMeta(reportMeta, isZh);
 
     const body = this.buildNarrativeBody({
       title,
       executiveSummary,
-      sections,
+      reportMeta,
       disclaimer: isZh
         ? '本报告仅供研究参考，不构成投资建议。投资有风险，入市需谨慎。'
         : 'This report is for research purposes only and does not constitute investment advice. Please invest responsibly.',
@@ -348,6 +385,7 @@ export class ReportNodeService {
       executiveSummary,
       body,
       sections,
+      reportMeta,
       verdict: advisory.verdict,
       confidence: advisory.confidence,
       disclaimer: isZh
@@ -363,16 +401,24 @@ export class ReportNodeService {
     const normalizedSections = report.sections.filter(
       (section) => section.heading.trim().length > 0 && section.points.length > 0,
     );
+    const reportMeta =
+      report.reportMeta ??
+      this.toReportMetaFromSections(
+        normalizedSections,
+        input.intent.language === 'zh',
+        report.executiveSummary,
+      );
     const fallbackBody = this.buildNarrativeBody({
       title: report.title,
       executiveSummary: report.executiveSummary,
-      sections: normalizedSections,
+      reportMeta,
       disclaimer: report.disclaimer,
     });
 
     return {
       ...report,
       sections: normalizedSections,
+      reportMeta,
       body:
         report.body.trim().length > 0 &&
         report.body.trim() !== report.executiveSummary.trim()
@@ -393,6 +439,7 @@ export class ReportNodeService {
       executiveSummary: narrative.executiveSummary.trim(),
       body: narrative.body.trim(),
       sections: fallback.sections,
+      reportMeta: fallback.reportMeta,
       verdict: input.analysis.verdict,
       confidence: input.analysis.confidence,
       disclaimer: narrative.disclaimer.trim(),
@@ -411,16 +458,20 @@ export class ReportNodeService {
   private buildNarrativeBody(input: {
     title: string;
     executiveSummary: string;
-    sections: Array<{ heading: string; points: string[] }>;
+    reportMeta: ReportMeta;
     disclaimer: string;
   }): string {
-    const sectionBlocks = input.sections.map((section) => {
+    const sections = this.buildSectionsFromReportMeta(
+      input.reportMeta,
+      /[\u4e00-\u9fff]/.test(input.executiveSummary + input.title),
+    );
+    const sectionBlocks = sections.map((section) => {
       const narrative = section.points.map((point) => `- ${point}`).join('\n');
-      return `${section.heading}\n${narrative}`;
+      return `## ${section.heading}\n${narrative}`;
     });
 
     return [
-      input.title,
+      `# ${input.title}`,
       '',
       input.executiveSummary,
       '',
@@ -436,5 +487,103 @@ export class ReportNodeService {
     if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
     if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(2)}K`;
     return value.toFixed(2);
+  }
+
+  private buildMarketContextLine(
+    price: ExecutionOutput['data']['market']['price'],
+    isZh: boolean,
+  ): string | null {
+    if (price.priceUsd === null && price.change24hPct === null) {
+      return null;
+    }
+
+    const priceText =
+      price.priceUsd === null
+        ? null
+        : `$${price.priceUsd < 1 ? price.priceUsd.toFixed(6) : price.priceUsd.toFixed(2)}`;
+    const changeText =
+      price.change24hPct === null
+        ? null
+        : `${price.change24hPct >= 0 ? '+' : ''}${price.change24hPct.toFixed(2)}%`;
+
+    if (isZh) {
+      if (priceText && changeText) {
+        return `当前价格约 ${priceText}，24h 变化 ${changeText}，这提供了这次判断的基本位置感。`;
+      }
+      if (priceText) {
+        return `当前价格约 ${priceText}，可作为这次判断的基础参考。`;
+      }
+      return `24h 价格变化约为 ${changeText}，说明短线波动仍然值得重视。`;
+    }
+
+    if (priceText && changeText) {
+      return `Price is around ${priceText} with a 24h move of ${changeText}, which frames the basic market position behind this view.`;
+    }
+    if (priceText) {
+      return `Price is around ${priceText}, which serves as the base reference for this read.`;
+    }
+    return `The 24h move is about ${changeText}, which still matters for short-term positioning.`;
+  }
+
+  private buildSectionsFromReportMeta(
+    reportMeta: ReportMeta,
+    isZh: boolean,
+  ): Array<{ heading: string; points: string[] }> {
+    const sections: Array<{ heading: string; points: string[] }> = [];
+    sections.push({
+      heading: isZh ? '核心结论' : 'Core Takeaway',
+      points: [reportMeta.keyTakeaway],
+    });
+    if (reportMeta.whyNow.length > 0) {
+      sections.push({
+        heading: isZh ? '为什么得出这个判断' : 'Why This View',
+        points: reportMeta.whyNow,
+      });
+    }
+    if (reportMeta.actionGuidance.length > 0) {
+      sections.push({
+        heading: isZh ? '现在该怎么做' : 'What To Do Now',
+        points: reportMeta.actionGuidance,
+      });
+    }
+    if (reportMeta.keyTriggers.length > 0) {
+      sections.push({
+        heading: isZh ? '关键触发位' : 'Key Triggers',
+        points: reportMeta.keyTriggers,
+      });
+    }
+    const qualityPoints = [
+      ...reportMeta.dataQualityNotes,
+      ...reportMeta.invalidationSignals,
+    ];
+    if (qualityPoints.length > 0) {
+      sections.push({
+        heading: isZh ? '风险与数据质量' : 'Risks And Data Quality',
+        points: qualityPoints,
+      });
+    }
+    return sections;
+  }
+
+  private toReportMetaFromSections(
+    sections: Array<{ heading: string; points: string[] }>,
+    isZh: boolean,
+    executiveSummary: string,
+  ): ReportMeta {
+    const byHeading = new Map(sections.map((section) => [section.heading, section.points]));
+    const core = byHeading.get(isZh ? '核心结论' : 'Core Takeaway') ?? [executiveSummary];
+    const why = byHeading.get(isZh ? '为什么得出这个判断' : 'Why This View') ?? [];
+    const action = byHeading.get(isZh ? '现在该怎么做' : 'What To Do Now') ?? [];
+    const triggers = byHeading.get(isZh ? '关键触发位' : 'Key Triggers') ?? [];
+    const quality = byHeading.get(isZh ? '风险与数据质量' : 'Risks And Data Quality') ?? [];
+    return {
+      keyTakeaway: core[0] ?? executiveSummary,
+      whyNow: why,
+      actionGuidance: action,
+      keyTriggers: triggers,
+      invalidationSignals: [],
+      dataQualityNotes: quality,
+      scenarioMap: [],
+    };
   }
 }

@@ -1,0 +1,635 @@
+[
+  {
+    "requestId": "4015f56c-5bad-4285-99bc-bfa6a8f495b3",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 121.0,
+    "note": "Pipeline completed by worker with LangGraph orchestration.",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "BTC未来24小时走势分析：数据不足，暂不建议方向性交易",
+    "reportBodyHead": "## 结论摘要\n\n本次对BTC接下来24小时走势的判断维持**数据不足**。置信度仅有**45%**，主要不是因为市场出现了明确反转或单边趋势，而是因为最关键的短线决策变量——**现价、24小时变动、7日表现、成交量、RSI、MACD、流动性深度**——均不可用或明显降级。在这种情况下，任何关于“即将上涨”或“即将下跌”的结论，都更接近猜测而非研究判断。\n\n从有限证据看，比特币的可交易性和安全性没有明显异常，项目基本面也不构成短线风险源；但链上资金流被系统归类为**卖压信号**，市场情绪又偏中性偏冷，因此当前更合理的结论不是押方向，而是承认证据不足、避免过度交易。\n\n## 有意义的数据与信号\n",
+    "analysisSummary": "当前BTC分析受限于关键数据缺失，虽网络安全性无虞且项目基本面稳固，但无法确认短期价格动能或支撑阻力位。链上显示轻微卖出压力，但缺乏价格与流动性上下文，不足以形成交易依据。",
+    "comparison": null,
+    "targetPipelines": [],
+    "issues": [],
+    "scenario": "single_asset",
+    "round": 1
+  },
+  {
+    "requestId": "5bcf05c7-5d44-4262-9125-005928cd92d0",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 166.9,
+    "note": "Pipeline completed by worker with LangGraph orchestration.",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "fallback",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "failureReason": "This operation was aborted",
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "BTC 分析报告 - 数据不足",
+    "reportBodyHead": "# BTC 分析报告 - 数据不足\n\n核心价格、技术指标和流动性数据缺失，无法可靠判断24小时方向性走势。\nBTC 当前更适合按「数据不足」理解，整体置信度 45%。\n\n\n## 核心结论\n- BTC 当前结论为「数据不足」，核心判断是：核心价格、技术指标和流动性数据缺失，无法可靠判断24小时方向性走势。\n\n## 为什么得出这个判断\n- 技术面整体偏 neutral，链上资金流表现为 sell pressure，市场情绪则偏 neutral。\n- 基本面上，Bitcoin 仍然可以概括为「Decentralized digital currency」。\n\n## 现在该怎么做\n- 当前更适合继续观",
+    "analysisSummary": "尽管比特币基础协议安全且可交易，但关键市场数据（价格、技术面、流动性）严重缺失，叠加链上显示交易所净流出带来的短期卖出压力，当前无法形成可靠的24小时走势判断。建议等待核心数据恢复后再做决策。",
+    "comparison": null,
+    "targetPipelines": [],
+    "issues": [
+      "report_not_success"
+    ],
+    "scenario": "single_asset",
+    "round": 2
+  },
+  {
+    "requestId": "da888061-1f5f-4aca-a320-1b003d7e2968",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 109.3,
+    "note": "Pipeline completed by worker with LangGraph orchestration.",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "BTC未来24小时走势分析：数据不足，维持观望",
+    "reportBodyHead": "## 决策结论\n\n对于BTC接下来24小时的走势，当前结论是**数据不足，暂不做明确方向判断**，置信度为**45%**。这一定性并非因为市场完全没有信号，而是因为最关键的短线决策依据——**价格、24小时波动、成交量、流动性和可量化技术指标**——几乎全部缺失。在这种情况下，任何关于“即将上涨”或“即将下跌”的判断都会明显依赖猜测，而不是建立在完整证据之上。\n\n现有信息中，链上资金流向是少数仍具参考价值的维度。数据显示与交易所相关的净流向反映出约**11.2亿美元级别的卖压信号**，这通常意味着短线存在潜在抛售压力；但由于没有现货价格和成交量背景，无法确认这类流动是否已经被市场消化，或者是否",
+    "analysisSummary": "尽管比特币基础协议安全且仍在活跃运行，但关键的实时市场数据（价格、成交量、技术指标、流动性）严重缺失，导致无法对接下来24小时的价格走势做出有把握的方向性判断。链上数据显示交易所净流入带来卖出压力，但缺乏价格上下文难以验证其影响程度。",
+    "comparison": null,
+    "targetPipelines": [],
+    "issues": [],
+    "scenario": "single_asset",
+    "round": 3
+  },
+  {
+    "requestId": "e6f703b5-454e-4c61-8da6-3af6e937d443",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 160.7,
+    "note": "Multi-target pipeline completed with per-token execution (no comparison requested).",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "fallback",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "failureReason": "This operation was aborted",
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "多标的篮子分析",
+    "reportBodyHead": "# 多标的篮子分析\n\n本次对 BTC、ETH 分别做了独立分析。当前更值得继续跟踪的是 ETH。当前没有出现需要明显减仓的标的。BTC、ETH 仍有关键证据缺口，暂不适合给强方向。\n\n\n## 整体结论\n- 当前更适合继续跟踪 ETH，其综合可读性和参考价值相对更高。\n- BTC、ETH 关键证据仍不完整，现阶段不宜给过强结论。\n\n## 配置建议\n- 若要继续投入精力，优先看 ETH，再决定是否需要更细的入场/离场讨论。\n- BTC：证据不完整，暂不建议给明确配置。\n- ETH：证据不完整，暂不建议给明确配置。\n\n## 场景推演\n- 偏强场景：ETH 若继续保持相对强势，应继续作为主要跟踪对象。",
+    "analysisSummary": "在关键数据（价格、技术面、流动性）大面积缺失的情况下，尽管安全性和基础项目状态无虞，但无法对BTC和ETH未来24小时走势做出有效策略建议。当前链上净流入虽提示短期抛压，但缺乏价格上下文与确认信号，应暂停方向性操作直至数据恢复。",
+    "comparison": null,
+    "targetPipelines": [
+      {
+        "targetKey": "BTC",
+        "nodeStatus": {
+          "intent": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          },
+          "planning": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "analysis": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "report": {
+            "llmStatus": "fallback",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "failureReason": "This operation was aborted",
+            "model": "gpt-5.4"
+          }
+        },
+        "reportTitle": "BTC 分析报告 - 数据不足",
+        "reportBodyHead": "# BTC 分析报告 - 数据不足\n\n核心价格、技术指标、链上细节及流动性数据严重缺失，无法构建可靠的24小时方向性判断。\nBTC 当前更适合按「数据不足」理解，整体置信度 45%。\n\n\n## 核心结论\n- BTC 当前结论为「数据不足」，核心判断是：核心价格、技术指标、链上细节及流动性数据严重缺失，无法构建可靠的24小时方向性判断。\n\n## 为什么得出这个判断\n- 技术面整体偏 neutral，链上资金流表现为 sell pressu",
+        "foreignSymbols": []
+      },
+      {
+        "targetKey": "ETH",
+        "nodeStatus": {
+          "intent": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          },
+          "planning": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "analysis": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "report": {
+            "llmStatus": "fallback",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "failureReason": "Empty LLM output.",
+            "model": "gpt-5.4"
+          }
+        },
+        "reportTitle": "ETH 分析报告 - 数据不足",
+        "reportBodyHead": "# ETH 分析报告 - 数据不足\n\n核心价格、技术指标和流动性数据缺失，无法对BTC和ETH未来24小时走势做出可靠判断。\nETH 当前更适合按「数据不足」理解，整体置信度 45%。\n\n\n## 核心结论\n- ETH 当前结论为「数据不足」，核心判断是：核心价格、技术指标和流动性数据缺失，无法对BTC和ETH未来24小时走势做出可靠判断。\n\n## 为什么得出这个判断\n- 技术面整体偏 neutral，链上资金流表现为 buy press",
+        "foreignSymbols": [
+          "BTC"
+        ]
+      }
+    ],
+    "issues": [
+      "BTC_report_not_success",
+      "ETH_report_not_success",
+      "ETH_report_cross_target:BTC"
+    ],
+    "scenario": "multi_asset",
+    "round": 1
+  },
+  {
+    "requestId": "8b08f4e2-a394-4eae-9854-1fc3a7d3d557",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 121.1,
+    "note": "Multi-target pipeline completed with per-token execution (no comparison requested).",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "多标的篮子分析",
+    "reportBodyHead": "# 多标的篮子分析\n\n本次对 BTC、ETH 分别做了独立分析。当前更值得继续跟踪的是 ETH。当前没有出现需要明显减仓的标的。BTC、ETH 仍有关键证据缺口，暂不适合给强方向。\n\n\n## 整体结论\n- 当前更适合继续跟踪 ETH，其综合可读性和参考价值相对更高。\n- BTC、ETH 关键证据仍不完整，现阶段不宜给过强结论。\n\n## 配置建议\n- 若要继续投入精力，优先看 ETH，再决定是否需要更细的入场/离场讨论。\n- BTC：证据不完整，暂不建议给明确配置。\n- ETH：证据不完整，暂不建议给明确配置。\n\n## 场景推演\n- 偏强场景：ETH 若继续保持相对强势，应继续作为主要跟踪对象。",
+    "analysisSummary": "在关键市场数据（价格、技术面、流动性）大面积缺失的情况下，尽管安全性和基础项目状态无虞，但无法对BTC和ETH未来24小时走势做出有效判断。当前链上净流入虽显示潜在卖压，但缺乏价格位置与市场结构验证，不足以支撑方向性策略。",
+    "comparison": null,
+    "targetPipelines": [
+      {
+        "targetKey": "BTC",
+        "nodeStatus": {
+          "intent": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          },
+          "planning": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "analysis": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "report": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          }
+        },
+        "reportTitle": "BTC、ETH未来24小时走势研判：数据不足，暂不建议做方向性押注",
+        "reportBodyHead": "## 决策摘要\n\n本次对 **BTC 与 ETH 未来24小时走势** 的判断维持 **数据不足**，整体置信度为 **45%**。核心原因不是市场一定会横盘或转空，而是支撑短线判断所必需的几类证据——**现价、24小时涨跌、技术指标细项、盘口流动性与深度**——同时缺位，导致任何方向性结论都容易建立在不完整信息之上。\n\n对 **BTC** 而言，现有材料仅能说明市场存在一定潜在卖压，但无法确认该卖压已经被价格计入、是否集中于特定交易所",
+        "foreignSymbols": [
+          "ETH"
+        ]
+      },
+      {
+        "targetKey": "ETH",
+        "nodeStatus": {
+          "intent": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          },
+          "planning": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "analysis": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "report": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          }
+        },
+        "reportTitle": "BTC/ETH未来24小时研判：证据不足，暂不提供方向性押注",
+        "reportBodyHead": "## 结论\n\n本次对BTC、ETH未来24小时走势的结论维持为**证据不足（INSUFFICIENT_DATA）**，当前置信度仅**45%**。原因很明确：短线判断最依赖的几项核心数据——**当前价格、24小时涨跌幅、成交量、技术指标细节以及流动性深度**——均缺失或处于降级状态。缺少这些信息，意味着我们无法验证趋势是否真实存在，也无法评估波动是否具备可交易性。\n\n换句话说，现阶段并不是简单的“偏多”或“偏空”问题，而是**证据链本身",
+        "foreignSymbols": [
+          "BTC"
+        ]
+      }
+    ],
+    "issues": [
+      "BTC_report_cross_target:ETH",
+      "ETH_report_cross_target:BTC"
+    ],
+    "scenario": "multi_asset",
+    "round": 2
+  },
+  {
+    "requestId": "028a9e82-9d08-4b59-92c1-4251d3783b2f",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 112.0,
+    "note": "Multi-target pipeline completed with per-token execution (no comparison requested).",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "多标的篮子分析",
+    "reportBodyHead": "# 多标的篮子分析\n\n本次对 BTC、ETH 分别做了独立分析。当前更值得继续跟踪的是 ETH。当前没有出现需要明显减仓的标的。BTC、ETH 仍有关键证据缺口，暂不适合给强方向。\n\n\n## 整体结论\n- 当前更适合继续跟踪 ETH，其综合可读性和参考价值相对更高。\n- BTC、ETH 关键证据仍不完整，现阶段不宜给过强结论。\n\n## 配置建议\n- 若要继续投入精力，优先看 ETH，再决定是否需要更细的入场/离场讨论。\n- BTC：证据不完整，暂不建议给明确配置。\n- ETH：证据不完整，暂不建议给明确配置。\n\n## 场景推演\n- 偏强场景：ETH 若继续保持相对强势，应继续作为主要跟踪对象。",
+    "analysisSummary": "当前数据严重降级，虽无重大安全威胁，但关键价格与流动性信息缺失，叠加链上出现大额净流出，不足以支撑任何方向性交易决策。建议等待数据恢复后再行动。",
+    "comparison": null,
+    "targetPipelines": [
+      {
+        "targetKey": "BTC",
+        "nodeStatus": {
+          "intent": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          },
+          "planning": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "analysis": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "report": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          }
+        },
+        "reportTitle": "BTC/ETH未来24小时研判：证据不足，暂不做方向性押注",
+        "reportBodyHead": "## 决策摘要\n\n本次判断维持**观望**，结论为**数据不足**，置信度 **45%**。从交易决策角度看，这不是一个适合主动押注BTC或ETH未来24小时单边方向的时点。原因很明确：最关键的价格与成交层数据缺失，技术面也没有可用的RSI、MACD等数值，导致趋势、动能和流动性承接能力都无法被验证。\n\n就现有证据而言，唯一值得重视的偏空线索是链上净流出约**11.4亿美元**，通常意味着阶段性卖压或资金转移压力；但由于缺少交易所级别的",
+        "foreignSymbols": [
+          "ETH"
+        ]
+      },
+      {
+        "targetKey": "ETH",
+        "nodeStatus": {
+          "intent": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          },
+          "planning": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "analysis": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "qwen3-max"
+          },
+          "report": {
+            "llmStatus": "success",
+            "attempts": 1,
+            "schemaCorrection": false,
+            "model": "gpt-5.4"
+          }
+        },
+        "reportTitle": "BTC/ETH未来24小时走势研判：数据不足，维持观望",
+        "reportBodyHead": "## 结论\n\n针对BTC与ETH未来24小时走势，本次结论维持**数据不足（INSUFFICIENT_DATA）**，置信度**45%**。这并不意味着市场没有方向，而是意味着目前证据链不完整，无法把“轻度偏多的情绪”与“可能存在的链上抛压”转化为高可信度的短线判断。\n\n尤其对于24小时级别的交易决策，**当前价格、24小时涨跌幅、成交量、K线结构与流动性深度**本应是最基础的判断依据，但这些信息目前均处于缺失或降级状态。在这种背景下，",
+        "foreignSymbols": [
+          "BTC"
+        ]
+      }
+    ],
+    "issues": [
+      "BTC_report_cross_target:ETH",
+      "ETH_report_cross_target:BTC"
+    ],
+    "scenario": "multi_asset",
+    "round": 3
+  },
+  {
+    "requestId": "9f73e2ab-af15-464e-81bb-6d52e2f737b0",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 127.2,
+    "note": "Multi-target pipeline completed with intent-driven comparison.",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "retry_success",
+        "attempts": 2,
+        "schemaCorrection": true,
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "BTC vs ETH 未来7天对比：暂不判胜负，先保留中性配置",
+    "reportBodyHead": "整体结论：未来 7 天维度上，目前不建议判断 BTC 或 ETH 会明显跑赢，因此不宣布最终胜者。ETH 在本次排序中只是相对告警更少，但仍然属于“数据不足”，并不能转化为可执行的短线优势。\n\n为什么没有胜者：这次对比失效的核心原因，是短线判断最依赖的价格、技术指标和流动性数据缺失。两者都出现 5 个关键模块降级，且都缺少 price 与 tokenomics 证据；在这种情况下，无法验证趋势延续、支撑阻力、波动率和成交承接，7 天走势判断容易失真。\n\nETH 观察：ETH 的边际状态略好于 BTC，黄色告警更少，且 TVL 与情绪面还有一些可读性，说明其生态基本面和市场关注度并未明显恶化。但",
+    "analysisSummary": "当前数据退化严重，虽无重大安全障碍，但关键市场信号（价格、技术、流动性）缺失，导致无法形成BTC与ETH的相对强弱判断。建议暂缓配置决策，直至核心数据恢复。",
+    "comparison": {
+      "exists": true,
+      "keys": [
+        "winner",
+        "ranked",
+        "summary"
+      ],
+      "meta": {},
+      "reportTitle": null,
+      "reportBodyHead": ""
+    },
+    "targetPipelines": [],
+    "issues": [
+      "comparison_should_not_have_target_pipelines",
+      "comparison_report_not_success",
+      "comparison_report_body_missing"
+    ],
+    "scenario": "comparison",
+    "round": 1
+  },
+  {
+    "requestId": "60014351-a5b8-4363-b507-6c31f4e52fe6",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 151.5,
+    "note": "Multi-target pipeline completed with intent-driven comparison.",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "retry_success",
+        "attempts": 2,
+        "schemaCorrection": true,
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "BTC 与 ETH 未来 7 天对比：暂无明确胜者，配置以中性观察为主",
+    "reportBodyHead": "【整体结论】当前不宣告 BTC 或 ETH 为未来 7 天走势的胜者。问题不在于两者强弱差距已经清晰，而在于关键市场证据缺失：价格、7 日表现、成交量和技术面几乎都不可用，导致短线方向判断缺少基础。\n\n【为什么会是这个结果】排名上 ETH 略高于 BTC，但两者最终结论同为“数据不足”，置信度都只有 0.45。ETH 只是黄色告警更少（2 个，对比 BTC 的 3 个），并不代表已经形成可交易的相对优势；在 5 个核心模块同时退化的情况下，这种差异不足以支持未来 7 天的胜负判断。\n\n【BTC 要点】BTC 的主要问题是价格、技术指标、流动性和代币经济学信息严重缺失，导致无法识别趋势与关键支撑",
+    "analysisSummary": "当前数据质量严重受限，尽管BTC基础安全性和交易可用性未见硬性风险，但关键市场数据（价格、流动性、技术面）缺失使任何方向性配置建议都缺乏依据。在数据恢复前，不宜进行主动仓位调整。",
+    "comparison": {
+      "exists": true,
+      "keys": [
+        "winner",
+        "ranked",
+        "summary"
+      ],
+      "meta": {},
+      "reportTitle": null,
+      "reportBodyHead": ""
+    },
+    "targetPipelines": [],
+    "issues": [
+      "comparison_should_not_have_target_pipelines",
+      "comparison_report_not_success",
+      "comparison_report_body_missing"
+    ],
+    "scenario": "comparison",
+    "round": 2
+  },
+  {
+    "requestId": "09835de0-83c2-4691-bf60-a788192dedb8",
+    "status": "ready",
+    "phase": null,
+    "elapsedSec": 139.4,
+    "note": "Multi-target pipeline completed with intent-driven comparison.",
+    "topNodeStatus": {
+      "intent": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "gpt-5.4"
+      },
+      "planning": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "analysis": {
+        "llmStatus": "success",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "model": "qwen3-max"
+      },
+      "report": {
+        "llmStatus": "fallback",
+        "attempts": 1,
+        "schemaCorrection": false,
+        "failureReason": "Empty LLM output.",
+        "model": "gpt-5.4"
+      }
+    },
+    "reportTitle": "多标的对比分析报告",
+    "reportBodyHead": "# 多标的对比分析报告\n\n未能生成有效对比结果，当前无法给出最终胜者。\n\n\n## 整体结论\n- 当前无法在 ETH、BTC 之间给出明确胜者。\n- 领先标的本身也处于“数据不足”，无法支撑强结论。\n- ETH 当前判断为「数据不足」，置信度约 45%。\n\n## 配置建议\n- 当前不建议基于这次对比强行做胜负配置，更适合继续观察后续确认。\n- ETH：当前不宜基于这次对比强行给出明确配置比例。\n- BTC：当前不宜基于这次对比强行给出明确配置比例。\n\n## 场景推演\n- 偏强场景：ETH 继续扩大相对优势，本次优先级判断有效。 触发条件：ETH 继续站稳关键位置，且风险告警没有继续恶化。\n- 基",
+    "analysisSummary": "当前数据环境严重受限，虽未发现硬性风险（如安全漏洞或极端流动性枯竭），但关键市场信号（价格、技术面、链上细节）大面积缺失，导致无法形成BTC与ETH的相对强弱判断或配置建议。需等待核心数据恢复后再做决策。",
+    "comparison": {
+      "exists": true,
+      "keys": [
+        "winner",
+        "ranked",
+        "summary"
+      ],
+      "meta": {},
+      "reportTitle": null,
+      "reportBodyHead": ""
+    },
+    "targetPipelines": [],
+    "issues": [
+      "comparison_should_not_have_target_pipelines",
+      "comparison_report_not_success",
+      "comparison_report_body_missing"
+    ],
+    "scenario": "comparison",
+    "round": 3
+  }
+]

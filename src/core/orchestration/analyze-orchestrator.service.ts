@@ -504,6 +504,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     timeWindow: '24h' | '7d',
     intent: IntentOutput,
     intentMeta: WorkflowNodeExecutionMeta | undefined,
+    renderPerTargetReport: boolean,
     onStageEvent?: (event: WorkflowStageEvent) => void,
   ) {
     return this.workflow.run(
@@ -514,6 +515,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         timeWindow,
         intent,
         intentMeta,
+        renderPerTargetReport,
       },
       {
         onStageEvent,
@@ -614,6 +616,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
             executionData.timeWindow,
             orchestrationIntent,
             orchestrationIntentMeta,
+            orchestrationIntent.taskType !== 'comparison',
             (stageEvent) => {
               const streamEvent = this.stageEventToStreamEvent(stageEvent);
               void this.refreshRequestProgress(
@@ -681,18 +684,21 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
             )?.identity ?? targetPipelines[0].identity)
           : targetPipelines[0].identity
         : targetPipelines[0].identity;
+      const comparisonReportResult =
+        targetPipelines.length > 1 && shouldCompare && comparison
+          ? await this.comparison.buildComparisonReportWithMeta(
+              targetPipelines,
+              comparison,
+            )
+          : null;
       const report =
-        targetPipelines.length > 1
-          ? shouldCompare && comparison
-            ? this.comparison.buildComparisonReport(
-                targetPipelines,
-                comparison,
-              )
-            : this.comparison.buildMultiTargetBundleReport(
-                targetPipelines,
-                orchestrationIntent,
-              )
-          : primaryPipeline.report;
+        comparisonReportResult?.report ??
+        (targetPipelines.length > 1
+          ? this.comparison.buildMultiTargetBundleReport(
+              targetPipelines,
+              orchestrationIntent,
+            )
+          : primaryPipeline.report);
 
       const current = await this.requestState.get(executionData.requestId);
       if (!current) {
@@ -710,6 +716,12 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         timeWindow: executionData.timeWindow,
         identity: primaryIdentity,
         ...primaryPipeline,
+        nodeStatus: comparisonReportResult
+          ? {
+              ...primaryPipeline.nodeStatus,
+              report: comparisonReportResult.meta,
+            }
+          : primaryPipeline.nodeStatus,
         intent: orchestrationIntent,
         report,
         multiTarget: targetPipelines.length > 1,
