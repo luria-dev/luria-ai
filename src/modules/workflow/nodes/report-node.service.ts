@@ -50,6 +50,10 @@ export class ReportNodeService {
   }> {
     const fallback = this.buildDeterministicReport(input);
     const { execution } = input;
+    const scopedQuery = this.buildScopedQuery(
+      input.intent,
+      execution.identity.symbol,
+    );
 
     const price = execution.data.market.price;
     const technical = execution.data.technical;
@@ -62,7 +66,7 @@ export class ReportNodeService {
 
     const context: ReportPromptContext = {
       language: input.intent.language,
-      query: input.intent.userQuery,
+      query: scopedQuery,
       taskType: input.intent.taskType,
       objective: input.intent.objective,
       sentimentBias: input.intent.sentimentBias,
@@ -140,6 +144,16 @@ export class ReportNodeService {
       ),
       meta: narrative.meta,
     };
+  }
+
+  private buildScopedQuery(intent: IntentOutput, symbol: string): string {
+    if (intent.taskType !== 'multi_asset') {
+      return intent.userQuery;
+    }
+
+    return intent.language === 'zh'
+      ? `请只针对 ${symbol} 输出独立分析报告，不要比较、排序，也不要提及其他标的。`
+      : `Produce an independent report only for ${symbol}. Do not compare, rank, or mention other assets.`;
   }
 
   private buildDeterministicReport(input: RenderReportInput): ReportOutput {

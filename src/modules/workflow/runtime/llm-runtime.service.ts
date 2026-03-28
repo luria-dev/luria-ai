@@ -363,6 +363,9 @@ export class LlmRuntimeService {
       normalized.includes('network') ||
       normalized.includes('timed out') ||
       normalized.includes('timeout') ||
+      normalized.includes('operation was aborted') ||
+      normalized.includes('was aborted') ||
+      normalized.includes('aborted') ||
       normalized.includes('aborterror') ||
       normalized.includes('429') ||
       normalized.includes('500') ||

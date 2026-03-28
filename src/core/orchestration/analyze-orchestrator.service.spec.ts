@@ -329,6 +329,7 @@ describe('AnalyzeOrchestratorService', () => {
       shouldBuildComparison: jest.fn(() => false),
       buildComparisonSummary: jest.fn(),
       buildComparisonReport: jest.fn(),
+      buildComparisonReportWithMeta: jest.fn(),
       buildMultiTargetBundleReport: jest.fn(),
     };
     const getStatus = (module: string) =>
@@ -863,5 +864,187 @@ describe('AnalyzeOrchestratorService', () => {
     );
     expect(intentMemo.save).toHaveBeenCalled();
     expect(comparison.shouldBuildComparison).toHaveBeenCalledWith(intent, 1);
+  });
+
+  it('processAnalyzeJob should expose only final comparison report payload in comparison mode', async () => {
+    const { service, workflow, requestState, comparison } = createService();
+    const comparisonIntent: IntentOutput = {
+      ...intent,
+      userQuery: 'Compare BTC vs ETH',
+      taskType: 'comparison',
+      outputGoal: 'comparison',
+      entities: ['BTC', 'ETH'],
+      entityMentions: ['BTC', 'ETH'],
+      symbols: ['BTC', 'ETH'],
+      chains: ['bitcoin', 'ethereum'],
+      timeWindow: '7d',
+    };
+    const btcIdentity = {
+      symbol: 'BTC',
+      chain: 'bitcoin',
+      tokenAddress: '',
+      sourceId: 'coingecko:bitcoin',
+    };
+    const ethIdentity = {
+      symbol: 'ETH',
+      chain: 'ethereum',
+      tokenAddress: '',
+      sourceId: 'coingecko:ethereum',
+    };
+    const btcPipeline: WorkflowRunResult = {
+      ...pipeline,
+      identity: btcIdentity,
+      intent: comparisonIntent,
+      execution: {
+        ...pipeline.execution,
+        identity: btcIdentity,
+      },
+      report: {
+        ...pipeline.report,
+        title: 'BTC report',
+      },
+      nodeStatus: {
+        ...pipeline.nodeStatus,
+        report: {
+          llmStatus: 'skipped',
+          attempts: 0,
+          schemaCorrection: false,
+          model: null,
+          failureReason: 'comparison_mode_skip',
+        },
+      },
+    };
+    const ethPipeline: WorkflowRunResult = {
+      ...pipeline,
+      identity: ethIdentity,
+      intent: comparisonIntent,
+      execution: {
+        ...pipeline.execution,
+        identity: ethIdentity,
+      },
+      report: {
+        ...pipeline.report,
+        title: 'ETH report',
+      },
+      nodeStatus: {
+        ...pipeline.nodeStatus,
+        report: {
+          llmStatus: 'skipped',
+          attempts: 0,
+          schemaCorrection: false,
+          model: null,
+          failureReason: 'comparison_mode_skip',
+        },
+      },
+    };
+    const comparisonSummary = {
+      winner: {
+        targetKey: 'BTC',
+        symbol: 'BTC',
+        chain: 'bitcoin',
+        verdict: 'HOLD',
+        confidence: 0.6,
+        score: 12,
+        reasons: ['analysis=HOLD'],
+      },
+      ranked: [],
+      summary: 'BTC leads',
+    };
+    const comparisonReport = {
+      ...pipeline.report,
+      title: 'Final comparison report',
+      body: '## Final comparison body',
+    };
+
+    workflow.parseIntentWithMeta.mockResolvedValue({
+      intent: comparisonIntent,
+      meta: intentMeta,
+    });
+    workflow.run
+      .mockResolvedValueOnce(btcPipeline)
+      .mockResolvedValueOnce(ethPipeline);
+    comparison.shouldBuildComparison.mockReturnValue(true);
+    comparison.buildComparisonSummary.mockReturnValue(comparisonSummary);
+    comparison.buildComparisonReportWithMeta.mockResolvedValue({
+      report: comparisonReport,
+      meta: {
+        llmStatus: 'success',
+        attempts: 1,
+        schemaCorrection: false,
+        model: 'gpt-5.4',
+      },
+    });
+    requestState.get
+      .mockResolvedValueOnce({
+        requestId: 'req-cmp',
+        status: 'pending',
+        threadId: null,
+        query: 'Compare BTC vs ETH',
+        timeWindow: '7d',
+        preferredChain: null,
+        targets: [],
+        candidates: [],
+        payload: {},
+      })
+      .mockResolvedValueOnce({
+        requestId: 'req-cmp',
+        status: 'pending',
+        threadId: null,
+        query: 'Compare BTC vs ETH',
+        timeWindow: '7d',
+        preferredChain: null,
+        targets: [],
+        candidates: [],
+        payload: {},
+      });
+
+    await (service as any).processAnalyzeJob({
+      requestId: 'req-cmp',
+      threadId: null,
+      query: 'Compare BTC vs ETH',
+      timeWindow: '7d',
+      preferredChain: null,
+      targets: [
+        { targetKey: 'BTC', identity: btcIdentity },
+        { targetKey: 'ETH', identity: ethIdentity },
+      ],
+    });
+
+    expect(workflow.run).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        identity: btcIdentity,
+        renderPerTargetReport: false,
+      }),
+      expect.any(Object),
+    );
+    expect(workflow.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        identity: ethIdentity,
+        renderPerTargetReport: false,
+      }),
+      expect.any(Object),
+    );
+    expect(requestState.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ready',
+        payload: expect.objectContaining({
+          report: expect.objectContaining({
+            title: 'Final comparison report',
+          }),
+          targetPipelines: [],
+          comparison: expect.objectContaining({
+            summary: 'BTC leads',
+            report: expect.objectContaining({
+              title: 'Final comparison report',
+            }),
+            meta: expect.objectContaining({
+              llmStatus: 'success',
+            }),
+          }),
+        }),
+      }),
+    );
   });
 });

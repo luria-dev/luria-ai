@@ -273,9 +273,297 @@ describe('ReportNodeService', () => {
     });
 
     expect(result.body).toContain('BTC 分析报告');
-    expect(result.body).toContain('关键信号');
+    expect(result.body).toContain('## 核心结论');
     expect(result.body).toContain('69175.00');
     expect(result.body).toContain('Core evidence is incomplete');
     expect(result.body.length).toBeGreaterThan(200);
+  });
+
+  it('should scope multi-asset prompts to the current target only', async () => {
+    let capturedUserPrompt = '';
+    const scopedRuntimeStub: Pick<
+      LlmRuntimeService,
+      'generateStructuredWithMeta'
+    > = {
+      async generateStructuredWithMeta<T>(input: {
+        userPrompt: string;
+        fallback: () => T;
+      }): Promise<{
+        data: T;
+        meta: {
+          llmStatus: 'fallback';
+          attempts: 1;
+          schemaCorrection: false;
+          model: null;
+        };
+      }> {
+        capturedUserPrompt = input.userPrompt;
+        return {
+          data: input.fallback(),
+          meta: {
+            llmStatus: 'fallback',
+            attempts: 1,
+            schemaCorrection: false,
+            model: null,
+          },
+        };
+      },
+    };
+
+    const service = new ReportNodeService(
+      scopedRuntimeStub as LlmRuntimeService,
+    );
+
+    await service.render({
+      intent: {
+        userQuery: '分析 BTC、ETH 接下来24小时走势，并分别给出策略建议',
+        language: 'zh',
+        interactionType: 'new_query',
+        taskType: 'multi_asset',
+        outputGoal: 'strategy',
+        needsClarification: false,
+        objective: 'timing_decision',
+        sentimentBias: 'unknown',
+        timeWindow: '24h',
+        entities: ['BTC', 'ETH'],
+        entityMentions: ['BTC', 'ETH'],
+        symbols: ['BTC', 'ETH'],
+        chains: ['bitcoin', 'ethereum'],
+        focusAreas: ['price_action', 'technical_indicators'],
+        constraints: [],
+      },
+      execution: {
+        identity: {
+          symbol: 'BTC',
+          chain: 'bitcoin',
+          tokenAddress: '',
+          sourceId: 'coingecko:bitcoin',
+        },
+        requestedTypes: ['price'],
+        executedTypes: ['price'],
+        collectedTypes: ['price'],
+        degradedNodes: [],
+        missingEvidence: [],
+        routing: [],
+        asOf: new Date().toISOString(),
+        data: {
+          market: {
+            price: {
+              priceUsd: 1,
+              change1hPct: 0,
+              change24hPct: 0,
+              change7dPct: 0,
+              change30dPct: 0,
+              marketCapRank: 1,
+              circulatingSupply: 1,
+              totalSupply: 1,
+              maxSupply: 1,
+              fdvUsd: 1,
+              totalVolume24hUsd: 1,
+              athUsd: 1,
+              atlUsd: 1,
+              athChangePct: 0,
+              atlChangePct: 0,
+              asOf: new Date().toISOString(),
+              sourceUsed: 'coingecko',
+              degraded: false,
+            },
+          },
+          news: {
+            items: [],
+            asOf: new Date().toISOString(),
+            sourceUsed: 'news_unavailable',
+            degraded: true,
+            degradeReason: 'NEWS_NOT_REQUESTED',
+          },
+          tokenomics: {
+            allocation: {
+              teamPct: null,
+              investorPct: null,
+              communityPct: null,
+              foundationPct: null,
+            },
+            vestingSchedule: [],
+            inflationRate: {
+              currentAnnualPct: null,
+              targetAnnualPct: null,
+              isDynamic: false,
+            },
+            evidence: [],
+            evidenceConflicts: [],
+            asOf: new Date().toISOString(),
+            sourceUsed: [],
+            degraded: false,
+            tokenomicsEvidenceInsufficient: true,
+          },
+          fundamentals: {
+            profile: {
+              projectId: null,
+              name: 'Bitcoin',
+              tokenSymbol: 'BTC',
+              oneLiner: null,
+              description: null,
+              establishmentDate: null,
+              active: true,
+              logoUrl: null,
+              rootdataUrl: null,
+              tags: [],
+              totalFundingUsd: null,
+              rtScore: null,
+              tvlScore: null,
+              similarProjects: [],
+            },
+            team: [],
+            investors: [],
+            fundraising: [],
+            ecosystems: {
+              ecosystems: [],
+              onMainNet: [],
+              onTestNet: [],
+              planToLaunch: [],
+            },
+            social: {
+              heat: null,
+              heatRank: null,
+              influence: null,
+              influenceRank: null,
+              followers: null,
+              following: null,
+              hotIndexScore: null,
+              hotIndexRank: null,
+              xHeatScore: null,
+              xHeatRank: null,
+              xInfluenceScore: null,
+              xInfluenceRank: null,
+              xFollowersScore: null,
+              xFollowersRank: null,
+              socialLinks: [],
+            },
+            asOf: new Date().toISOString(),
+            sourceUsed: [],
+            degraded: false,
+          },
+          technical: {
+            rsi: { period: 14, value: 50, signal: 'neutral' },
+            macd: { macd: 0, signalLine: 0, histogram: 0, signal: 'neutral' },
+            ma: { ma7: 1, ma25: 1, ma99: 1, signal: 'neutral' },
+            boll: {
+              upper: 1,
+              middle: 1,
+              lower: 1,
+              bandwidth: 0.1,
+              signal: 'neutral',
+            },
+            atr: { value: 1, period: 14 },
+            swingHigh: 1,
+            swingLow: 1,
+            summarySignal: 'neutral',
+            asOf: new Date().toISOString(),
+            sourceUsed: 'coingecko',
+            degraded: false,
+          },
+          onchain: {
+            cexNetflow: {
+              window: '24h',
+              inflowUsd: null,
+              outflowUsd: null,
+              netflowUsd: null,
+              signal: 'neutral',
+              exchanges: [],
+              asOf: new Date().toISOString(),
+              sourceUsed: [],
+              degraded: true,
+              degradeReason: 'NOT_AVAILABLE',
+            },
+          },
+          security: {
+            isContractOpenSource: null,
+            isHoneypot: false,
+            isOwnerRenounced: null,
+            riskScore: 1,
+            riskLevel: 'low',
+            riskItems: [],
+            canTradeSafely: true,
+            holderCount: null,
+            lpHolderCount: null,
+            creatorPercent: null,
+            ownerPercent: null,
+            isInCex: true,
+            cexList: [],
+            isInDex: null,
+            transferPausable: null,
+            selfdestruct: null,
+            externalCall: null,
+            honeypotWithSameCreator: null,
+            trustList: null,
+            isAntiWhale: null,
+            transferTax: 0,
+            asOf: new Date().toISOString(),
+            sourceUsed: 'security_unavailable',
+            degraded: false,
+          },
+          liquidity: {
+            quoteToken: 'USDT',
+            hasUsdtOrUsdcPair: true,
+            liquidityUsd: 1,
+            liquidity1hAgoUsd: null,
+            liquidityDrop1hPct: null,
+            withdrawalRiskFlag: false,
+            volume24hUsd: 1,
+            priceImpact1kPct: 0,
+            isLpLocked: null,
+            lpLockRatioPct: null,
+            rugpullRiskSignal: 'low',
+            warnings: [],
+            asOf: new Date().toISOString(),
+            sourceUsed: 'coingecko',
+            degraded: false,
+          },
+          sentiment: {
+            socialVolume: 1,
+            socialDominance: 1,
+            sentimentPositive: 1,
+            sentimentNegative: 1,
+            sentimentBalanced: 1,
+            sentimentScore: 1,
+            devActivity: 1,
+            githubActivity: 1,
+            signal: 'neutral',
+            asOf: new Date().toISOString(),
+            sourceUsed: 'santiment',
+            degraded: false,
+          },
+        },
+      } as any,
+      analysis: {
+        verdict: 'HOLD',
+        confidence: 0.5,
+        reason: 'test',
+        buyZone: null,
+        sellZone: null,
+        evidence: ['test'],
+        summary: 'test',
+        keyObservations: [],
+        hardBlocks: [],
+        riskHighlights: [],
+        opportunityHighlights: [],
+        dataQualityNotes: [],
+        tradingStrategy: undefined,
+      },
+      alerts: {
+        alertLevel: 'green',
+        alertType: [],
+        riskState: 'normal',
+        redCount: 0,
+        yellowCount: 0,
+        items: [],
+        asOf: new Date().toISOString(),
+      },
+    });
+
+    expect(capturedUserPrompt).toContain('请只针对 BTC 输出独立分析报告');
+    expect(capturedUserPrompt).not.toContain(
+      '分析 BTC、ETH 接下来24小时走势，并分别给出策略建议',
+    );
   });
 });

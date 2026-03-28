@@ -385,6 +385,11 @@ export class ComparisonService {
       userPrompt: prompts.userPrompt,
       schema: comparisonReportNarrativeSchema,
       fallback: () => this.toNarrativeFallback(fallback),
+      correctionGuidance: [
+        'The `body` field must be a single Markdown string, not an array.',
+        'Do not wrap body content as a JSON array of paragraphs.',
+        'Return exactly one JSON object with string fields only.',
+      ],
     });
 
     return {
@@ -563,6 +568,7 @@ Write one clear comparison report for multiple crypto assets using the supplied 
 - Select only the most decision-relevant numbers and risks
 - Respect the supplied comparison result; do not override the winner logic
 - Return only valid JSON with: title, executiveSummary, body, disclaimer
+- The field "body" must be one Markdown string, not an array or object
 
 ## Body Structure
 - Use short titled paragraphs in the body
@@ -614,6 +620,7 @@ ${targetLines.join('\n\n')}
 Produce the final comparison report for the user.
 The report should sound like a concise analyst note, not a raw scoring export.
 If no winner can be declared, explain the blocking factors and what to monitor next.
+Return "body" as one Markdown string.
 `.trim();
 
     return { systemPrompt, userPrompt };

@@ -92,6 +92,8 @@ The report body must include all of the following:
 
 ## Important Rules
 - Use ${isZh ? 'Chinese (中文)' : 'English'}
+- Discuss only the target symbol shown below
+- If the original user request involved multiple assets, ignore the other assets and do not mention them in the title or body
 - Do not restate every raw field; select only the most decision-relevant data
 - The body must read like a real analyst report, not like a table dump
 - Prefer interpretation over enumeration
@@ -189,6 +191,7 @@ ${context.alerts.topItems.length > 0 ? `- Top Alert Items:\n${context.alerts.top
 Produce a professional report that preserves meaningful data and a clear decision.
 The body should emphasize why the verdict makes sense, what the few most important numbers mean, what the main risks are, and what the reader should do or watch next.
 Write as if the user prefers a readable analyst note over a data list.
+Do not mention or compare any other asset besides ${context.target.symbol}.
 Return the body as Markdown, using short headings and concise bullet lists only where they improve readability.
 `.trim();
 

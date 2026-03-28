@@ -691,6 +691,14 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
               comparison,
             )
           : null;
+      const comparisonPayload =
+        comparison && comparisonReportResult
+          ? {
+              ...comparison,
+              report: comparisonReportResult.report,
+              meta: comparisonReportResult.meta,
+            }
+          : comparison;
       const report =
         comparisonReportResult?.report ??
         (targetPipelines.length > 1
@@ -725,26 +733,28 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         intent: orchestrationIntent,
         report,
         multiTarget: targetPipelines.length > 1,
-          targetCount: targetPipelines.length,
-          orchestration: {
-            taskType: orchestrationIntent.taskType,
-            compareApplied: shouldCompare,
-            entities: orchestrationIntent.entities,
+        targetCount: targetPipelines.length,
+        orchestration: {
+          taskType: orchestrationIntent.taskType,
+          compareApplied: shouldCompare,
+          entities: orchestrationIntent.entities,
           memoThreadId: executionData.threadId,
         },
-        targetPipelines: targetPipelines.map((item) => ({
-          targetKey: item.targetKey,
-          identity: item.identity,
-          intent: item.pipeline.intent,
-          plan: item.pipeline.plan,
-          execution: item.pipeline.execution,
-          alerts: item.pipeline.alerts,
-          strategy: item.pipeline.strategy,
-          analysis: item.pipeline.analysis,
-          report: item.pipeline.report,
-          nodeStatus: item.pipeline.nodeStatus,
-        })),
-        comparison,
+        targetPipelines: shouldCompare
+          ? []
+          : targetPipelines.map((item) => ({
+              targetKey: item.targetKey,
+              identity: item.identity,
+              intent: item.pipeline.intent,
+              plan: item.pipeline.plan,
+              execution: item.pipeline.execution,
+              alerts: item.pipeline.alerts,
+              strategy: item.pipeline.strategy,
+              analysis: item.pipeline.analysis,
+              report: item.pipeline.report,
+              nodeStatus: item.pipeline.nodeStatus,
+            })),
+        comparison: comparisonPayload,
         architecture: this.getModuleReadiness(),
         ...this.progressMeta('completed'),
         note:

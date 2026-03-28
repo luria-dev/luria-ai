@@ -1,0 +1,156 @@
+[
+  {
+    "scenario": "comparison",
+    "round": 1,
+    "requestId": "0ed7a2ce-883e-4072-bc11-388ca59782d0",
+    "status": "ready",
+    "phase": "completed",
+    "nodeStatus": {
+      "intent": "success",
+      "planning": "success",
+      "analysis": "success",
+      "report": "success"
+    },
+    "topReportTitle": "BTC vs ETH 未来7天对比：暂不判定胜者，先等数据恢复再配置",
+    "topReportHasBody": true,
+    "comparisonReportTitle": "BTC vs ETH 未来7天对比：暂不判定胜者，先等数据恢复再配置",
+    "comparisonReportHasBody": true,
+    "comparisonMetaStatus": "success",
+    "targetPipelinesLen": 0,
+    "targets": []
+  },
+  {
+    "scenario": "comparison",
+    "round": 2,
+    "requestId": "809d20c9-d400-45c4-8f0c-e3c91f718b50",
+    "status": "ready",
+    "phase": "completed",
+    "nodeStatus": {
+      "intent": "success",
+      "planning": "success",
+      "analysis": "success",
+      "report": "success"
+    },
+    "topReportTitle": "BTC 与 ETH 未来7天对比：暂不宣布胜者",
+    "topReportHasBody": true,
+    "comparisonReportTitle": "BTC 与 ETH 未来7天对比：暂不宣布胜者",
+    "comparisonReportHasBody": true,
+    "comparisonMetaStatus": "success",
+    "targetPipelinesLen": 0,
+    "targets": []
+  },
+  {
+    "scenario": "multi_asset",
+    "round": 1,
+    "requestId": "fd30ffb4-bb63-4087-86ac-d0486239dc50",
+    "status": "ready",
+    "phase": "completed",
+    "nodeStatus": {
+      "intent": "success",
+      "planning": "success",
+      "analysis": "success",
+      "report": "success"
+    },
+    "topReportTitle": "多标的篮子分析",
+    "topReportHasBody": true,
+    "comparisonReportTitle": null,
+    "comparisonReportHasBody": false,
+    "comparisonMetaStatus": null,
+    "targetPipelinesLen": 2,
+    "targets": [
+      {
+        "symbol": "BTC",
+        "title": "BTC独立分析报告：数据不足，暂不形成24小时方向判断",
+        "mentionsOther": []
+      },
+      {
+        "symbol": "ETH",
+        "title": "ETH 独立分析报告：数据不足，暂不建议形成方向性交易判断",
+        "mentionsOther": []
+      }
+    ]
+  },
+  {
+    "scenario": "multi_asset",
+    "round": 2,
+    "requestId": "ab40f3e1-0218-4b71-b559-3d28b70bc0f6",
+    "status": "ready",
+    "phase": "completed",
+    "nodeStatus": {
+      "intent": "success",
+      "planning": "success",
+      "analysis": "success",
+      "report": "success"
+    },
+    "topReportTitle": "多标的篮子分析",
+    "topReportHasBody": true,
+    "comparisonReportTitle": null,
+    "comparisonReportHasBody": false,
+    "comparisonMetaStatus": null,
+    "targetPipelinesLen": 2,
+    "targets": [
+      {
+        "symbol": "BTC",
+        "title": "BTC 独立分析报告：数据不足",
+        "mentionsOther": []
+      },
+      {
+        "symbol": "ETH",
+        "title": "ETH 分析报告：数据不足，暂不形成交易判断",
+        "mentionsOther": []
+      }
+    ]
+  },
+  {
+    "scenario": "single_asset",
+    "round": 1,
+    "requestId": "b1ab46e7-cad4-4220-b0d7-1cb575c497d9",
+    "status": "ready",
+    "phase": "completed",
+    "nodeStatus": {
+      "intent": "success",
+      "planning": "success",
+      "analysis": "success",
+      "report": "success"
+    },
+    "topReportTitle": "BTC 24小时走势研判：数据不足，暂不建议方向性押注",
+    "topReportHasBody": true,
+    "comparisonReportTitle": null,
+    "comparisonReportHasBody": false,
+    "comparisonMetaStatus": null,
+    "targetPipelinesLen": 1,
+    "targets": [
+      {
+        "symbol": "BTC",
+        "title": "BTC 24小时走势研判：数据不足，暂不建议方向性押注",
+        "mentionsOther": []
+      }
+    ]
+  },
+  {
+    "scenario": "single_asset",
+    "round": 2,
+    "requestId": "396ee9cc-f8e8-4567-b663-a1e84a89a9a7",
+    "status": "ready",
+    "phase": "completed",
+    "nodeStatus": {
+      "intent": "success",
+      "planning": "success",
+      "analysis": "success",
+      "report": "success"
+    },
+    "topReportTitle": "BTC 24小时走势分析：数据不足，暂不支持方向性交易",
+    "topReportHasBody": true,
+    "comparisonReportTitle": null,
+    "comparisonReportHasBody": false,
+    "comparisonMetaStatus": null,
+    "targetPipelinesLen": 1,
+    "targets": [
+      {
+        "symbol": "BTC",
+        "title": "BTC 24小时走势分析：数据不足，暂不支持方向性交易",
+        "mentionsOther": []
+      }
+    ]
+  }
+]
