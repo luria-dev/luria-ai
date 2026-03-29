@@ -53,22 +53,9 @@ export class AnalyzeController {
   }
 
   private resolveTimeWindow(
-    message: string,
+    _message: string,
     requested?: '24h' | '7d',
   ): '24h' | '7d' {
-    if (requested) {
-      return requested;
-    }
-
-    const normalized = message.toLowerCase();
-    if (
-      /(?:7\s*d|7day|7 days|7天|七天|一周|1周|一星期|weekly|week)/i.test(
-        normalized,
-      )
-    ) {
-      return '7d';
-    }
-
-    return '24h';
+    return requested ?? '24h';
   }
 }

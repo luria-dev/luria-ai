@@ -378,6 +378,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         await this.requestState.set({
           ...state,
           status: 'ready',
+          timeWindow: result.timeWindow,
           payload: {
             ...state.payload,
             phase: 'completed',
@@ -1154,10 +1155,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     });
 
     request.status = 'ready';
+    request.timeWindow = reply.timeWindow;
     request.payload = {
       ...request.payload,
       query: data.query,
-      timeWindow: data.timeWindow,
+      timeWindow: reply.timeWindow,
       threadId: data.threadId,
       mode: data.mode,
       lang: data.lang,

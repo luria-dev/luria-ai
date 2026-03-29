@@ -78,20 +78,57 @@ describe('InstantChatService', () => {
     degraded: false,
   };
 
+  function intentJson(
+    overrides?: Partial<{
+      assetDecision: 'explicit' | 'inherit' | 'none';
+      assetQuery: string | null;
+      timeDecision: 'explicit' | 'inherit' | 'none';
+      resolvedTimeWindow: '24h' | '7d' | null;
+      goalDecision: 'explicit' | 'inherit' | 'none';
+      resolvedGoal: string | null;
+      scopeDecision: 'explicit' | 'inherit' | 'none';
+      resolvedScope: 'single_asset' | 'comparison' | 'multi_asset' | 'general' | null;
+      needsClarification: boolean;
+    }>,
+  ) {
+    return JSON.stringify({
+      assetDecision: 'none',
+      assetQuery: null,
+      timeDecision: 'none',
+      resolvedTimeWindow: null,
+      goalDecision: 'none',
+      resolvedGoal: null,
+      scopeDecision: 'none',
+      resolvedScope: null,
+      needsClarification: false,
+      ...overrides,
+    });
+  }
+
   function createService(overrides?: {
     searcherResolve?: jest.Mock;
     generateText?: jest.Mock;
   }) {
+    const conversations = new InstantConversationService();
     const llm = {
       generateText:
         overrides?.generateText ??
-        jest.fn().mockResolvedValue({
-          content: 'mock-reply',
-          meta: {
-            model: 'qwen3-max',
-            responseId: 'resp_1',
-          },
-        }),
+        jest
+          .fn()
+          .mockResolvedValueOnce({
+            content: intentJson(),
+            meta: {
+              model: 'qwen3-max',
+              responseId: 'intent_1',
+            },
+          })
+          .mockResolvedValueOnce({
+            content: 'mock-reply',
+            meta: {
+              model: 'qwen3-max',
+              responseId: 'resp_1',
+            },
+          }),
     } as Pick<LlmRuntimeService, 'generateText'>;
 
     const searcher = {
@@ -113,13 +150,14 @@ describe('InstantChatService', () => {
 
     const service = new InstantChatService(
       llm as LlmRuntimeService,
-      new InstantConversationService(),
+      conversations,
       searcher as SearcherService,
       market as MarketService,
       technical as TechnicalService,
     );
 
     return {
+      conversations,
       service,
       llm,
       searcher,
@@ -128,7 +166,7 @@ describe('InstantChatService', () => {
     };
   }
 
-  it('injects resolved market and technical snapshots into the prompt', async () => {
+  it('injects resolved market and technical snapshots into the answer prompt', async () => {
     const { service, llm, searcher, market, technical } = createService();
 
     await service.reply({
@@ -142,25 +180,19 @@ describe('InstantChatService', () => {
     expect(searcher.resolve).toHaveBeenCalledWith('BTC 现在能买吗');
     expect(market.fetchPrice).toHaveBeenCalledWith(identity);
     expect(technical.fetchSnapshot).toHaveBeenCalledWith(identity, '24h');
-    expect(llm.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userPrompt: expect.stringContaining('Asset resolution: resolved'),
-      }),
+
+    const prompts = (llm.generateText as jest.Mock).mock.calls.map(
+      ([input]) => input.userPrompt as string,
     );
-    expect(llm.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userPrompt: expect.stringContaining('Price USD: 68000'),
-      }),
+    expect(prompts.some((prompt) => prompt.includes('Asset resolution: resolved'))).toBe(
+      true,
     );
-    expect(llm.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userPrompt: expect.stringContaining('RSI14: 58.3'),
-      }),
+    expect(prompts.some((prompt) => prompt.includes('Price USD: 68000'))).toBe(
+      true,
     );
-    expect(llm.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userPrompt: expect.stringContaining('Bollinger upper: 69000'),
-      }),
+    expect(prompts.some((prompt) => prompt.includes('RSI14: 58.3'))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes('Bollinger upper: 69000'))).toBe(
+      true,
     );
   });
 
@@ -185,11 +217,30 @@ describe('InstantChatService', () => {
         sourceId: 'coingecko:pepe-base',
       },
     ];
+
+    const generateText = jest
+      .fn()
+      .mockResolvedValueOnce({
+        content: intentJson(),
+        meta: {
+          model: 'qwen3-max',
+          responseId: 'intent_1',
+        },
+      })
+      .mockResolvedValueOnce({
+        content: 'clarify',
+        meta: {
+          model: 'qwen3-max',
+          responseId: 'resp_1',
+        },
+      });
+
     const { service, llm, market, technical } = createService({
       searcherResolve: jest.fn().mockResolvedValue({
         kind: 'ambiguous' as const,
         candidates,
       }),
+      generateText,
     });
 
     await service.reply({
@@ -202,17 +253,155 @@ describe('InstantChatService', () => {
 
     expect(market.fetchPrice).not.toHaveBeenCalled();
     expect(technical.fetchSnapshot).not.toHaveBeenCalled();
-    expect(llm.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userPrompt: expect.stringContaining('Asset resolution: ambiguous'),
-      }),
+
+    const prompts = (llm.generateText as jest.Mock).mock.calls.map(
+      ([input]) => input.userPrompt as string,
     );
-    expect(llm.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userPrompt: expect.stringContaining(
+    expect(prompts.some((prompt) => prompt.includes('Asset resolution: ambiguous'))).toBe(
+      true,
+    );
+    expect(
+      prompts.some((prompt) =>
+        prompt.includes(
           'Ask the user to specify the exact symbol or chain before giving token-specific numbers.',
         ),
+      ),
+    ).toBe(true);
+  });
+
+  it('reuses the last resolved identity based on prior instant state', async () => {
+    const generateText = jest
+      .fn()
+      .mockResolvedValueOnce({
+        content: intentJson({
+          assetDecision: 'inherit',
+          timeDecision: 'inherit',
+          goalDecision: 'explicit',
+          resolvedGoal: 'risk_levels',
+          scopeDecision: 'inherit',
+        }),
+        meta: {
+          model: 'qwen3-max',
+          responseId: 'intent_2',
+        },
+      })
+      .mockResolvedValueOnce({
+        content: 'mock-follow-up',
+        meta: {
+          model: 'qwen3-max',
+          responseId: 'resp_2',
+        },
+      });
+
+    const { service, conversations, llm, searcher, market, technical } =
+      createService({
+        searcherResolve: jest.fn().mockResolvedValue({
+          kind: 'not_found' as const,
+        }),
+        generateText,
+      });
+
+    conversations.saveTurn({
+      threadId: 'thread-follow-up',
+      requestId: 'req-prev',
+      userMessage: 'BTC 适合建仓吗',
+      assistantMessage: 'prev',
+      responseId: 'resp-prev',
+      resolvedIdentity: identity,
+      timeWindow: '24h',
+      goal: 'analysis',
+      scope: 'single_asset',
+      turnContext: {
+        assetMention: 'BTC',
+        timeWindow: '24h',
+        goal: 'analysis',
+        scope: 'single_asset',
+      },
+    });
+
+    const result = await service.reply({
+      threadId: 'thread-follow-up',
+      requestId: 'req-follow-up',
+      message: '那支撑位和止损怎么设？',
+      timeWindow: '24h',
+      lang: 'cn',
+    });
+
+    expect(searcher.resolve).not.toHaveBeenCalled();
+    expect(market.fetchPrice).toHaveBeenCalledWith(identity);
+    expect(technical.fetchSnapshot).toHaveBeenCalledWith(identity, '24h');
+    expect(result.resolvedIdentity).toEqual(identity);
+    expect(result.goal).toBe('risk_levels');
+
+    const parsePrompt = (llm.generateText as jest.Mock).mock.calls[0][0]
+      .userPrompt as string;
+    expect(parsePrompt).toContain('Asset track:');
+    expect(parsePrompt).toContain('value=BTC');
+
+    const state = conversations.get('thread-follow-up');
+    expect(state?.lastResolvedIdentity).toEqual(identity);
+    expect(state?.lastGoal).toBe('risk_levels');
+  });
+
+  it('switches to an explicit 7d window and saves it into conversation state', async () => {
+    const generateText = jest
+      .fn()
+      .mockResolvedValueOnce({
+        content: intentJson({
+          assetDecision: 'inherit',
+          timeDecision: 'explicit',
+          resolvedTimeWindow: '7d',
+          goalDecision: 'inherit',
+          scopeDecision: 'inherit',
+        }),
+        meta: {
+          model: 'qwen3-max',
+          responseId: 'intent_3',
+        },
+      })
+      .mockResolvedValueOnce({
+        content: 'mock-7d',
+        meta: {
+          model: 'qwen3-max',
+          responseId: 'resp_3',
+        },
+      });
+
+    const { service, conversations, technical } = createService({
+      searcherResolve: jest.fn().mockResolvedValue({
+        kind: 'not_found' as const,
       }),
-    );
+      generateText,
+    });
+
+    conversations.saveTurn({
+      threadId: 'thread-window',
+      requestId: 'req-prev',
+      userMessage: 'BTC 24h 怎么看',
+      assistantMessage: 'prev',
+      responseId: 'resp-prev',
+      resolvedIdentity: identity,
+      timeWindow: '24h',
+      goal: 'analysis',
+      scope: 'single_asset',
+      turnContext: {
+        assetMention: 'BTC',
+        timeWindow: '24h',
+        goal: 'analysis',
+        scope: 'single_asset',
+      },
+    });
+
+    const result = await service.reply({
+      threadId: 'thread-window',
+      requestId: 'req-window',
+      message: '那看 7 天周期呢？',
+      timeWindow: '24h',
+      lang: 'cn',
+    });
+
+    expect(technical.fetchSnapshot).toHaveBeenCalledWith(identity, '7d');
+    expect(result.timeWindow).toBe('7d');
+    expect(conversations.get('thread-window')?.lastTimeWindow).toBe('7d');
   });
 });
