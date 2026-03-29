@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import type {
   AnalyzeCandidate,
@@ -14,7 +14,7 @@ export class SearchCacheService {
   private dbUnavailable = false;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Optional() private readonly prisma: PrismaService | null,
     private readonly cachePolicy: CachePolicyService,
   ) {}
 
@@ -32,7 +32,7 @@ export class SearchCacheService {
     }
 
     try {
-      const matches = await this.prisma.asset.findMany({
+      const matches = await this.prisma!.asset.findMany({
         where: {
           ...(preferredChain?.trim()
             ? {
@@ -97,7 +97,7 @@ export class SearchCacheService {
     const nowMs = Date.now();
 
     try {
-      const snapshot = await this.prisma.searchSnapshot.findUnique({
+      const snapshot = await this.prisma!.searchSnapshot.findUnique({
         where: { cacheKey },
         select: {
           id: true,
@@ -155,7 +155,7 @@ export class SearchCacheService {
         fetchedAt.getTime() + policy.ttlSeconds * 1000,
       );
 
-      await this.prisma.searchSnapshot.upsert({
+      await this.prisma!.searchSnapshot.upsert({
         where: {
           cacheKey: this.buildCacheKey(input.query, input.preferredChain),
         },
@@ -193,7 +193,7 @@ export class SearchCacheService {
 
     await Promise.all(
       candidates.map((candidate) =>
-        this.prisma.asset.upsert({
+        this.prisma!.asset.upsert({
           where: { sourceId: candidate.sourceId },
           update: {
             symbol: candidate.symbol,
@@ -275,7 +275,7 @@ export class SearchCacheService {
       return;
     }
 
-    void this.prisma.searchSnapshot
+    void this.prisma!.searchSnapshot
       .update({
         where: { id },
         data: {
@@ -315,7 +315,7 @@ export class SearchCacheService {
   }
 
   private isDbReady(): boolean {
-    return this.prisma.isConfigured() && !this.dbUnavailable;
+    return Boolean(this.prisma?.isConfigured()) && !this.dbUnavailable;
   }
 
   private disableDb(operation: string, error: unknown): void {

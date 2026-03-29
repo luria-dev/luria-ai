@@ -48,6 +48,7 @@ export type WorkflowStageEvent = {
   stage: WorkflowStage;
   status: WorkflowStageStatus;
   timestamp: string;
+  data?: Record<string, unknown>;
 };
 
 type WorkflowRunOptions = {
@@ -99,6 +100,7 @@ export class AnalysisWorkflowService {
     query: string;
     timeWindow: '24h' | '7d';
     preferredChain: string | null;
+    language?: IntentOutput['language'];
     memo?: IntentMemoSnapshot | null;
   }): Promise<IntentOutput> {
     const result = await this.parseIntentWithMeta(input);
@@ -109,6 +111,7 @@ export class AnalysisWorkflowService {
     query: string;
     timeWindow: '24h' | '7d';
     preferredChain: string | null;
+    language?: IntentOutput['language'];
     memo?: IntentMemoSnapshot | null;
   }): Promise<{
     intent: IntentOutput;
@@ -217,7 +220,9 @@ export class AnalysisWorkflowService {
           objective: intent.objective,
           taskType: intent.taskType,
         });
-        this.emitStageEvent(state, 'executor', 'completed');
+        this.emitStageEvent(state, 'executor', 'completed', {
+          dataSummaryPoints: this.buildExecutionSummary(execution),
+        });
         return { execution };
       })
       .addNode('n_risk_strategy', async (state: WorkflowGraphState) => {
@@ -233,7 +238,9 @@ export class AnalysisWorkflowService {
           liquidity: execution.data.liquidity,
           tokenomics: execution.data.tokenomics,
         });
-        this.emitStageEvent(state, 'risk_strategy', 'completed');
+        this.emitStageEvent(state, 'risk_strategy', 'completed', {
+          riskSummaryPoints: this.buildAlertsSummary(alerts),
+        });
         return { alerts };
       })
       .addNode('n_analysis', async (state: WorkflowGraphState) => {
@@ -342,6 +349,7 @@ export class AnalysisWorkflowService {
     state: WorkflowGraphState,
     stage: WorkflowStage,
     status: WorkflowStageStatus,
+    data?: Record<string, unknown>,
   ): void {
     const callback = state.onStageEvent as
       | ((event: WorkflowStageEvent) => void)
@@ -350,7 +358,73 @@ export class AnalysisWorkflowService {
       stage,
       status,
       timestamp: new Date().toISOString(),
+      data,
     });
+  }
+
+  private buildExecutionSummary(execution: ExecutionOutput): string[] {
+    const price = execution.data.market.price;
+    const technical = execution.data.technical;
+    const sentiment = execution.data.sentiment;
+    const liquidity = execution.data.liquidity;
+
+    const points: string[] = [];
+    if (price.priceUsd != null) {
+      points.push(`现价 ${this.formatUsd(price.priceUsd)}`);
+    }
+    if (price.change24hPct != null) {
+      points.push(`24h ${this.formatPct(price.change24hPct)}`);
+    }
+    if (technical.summarySignal) {
+      points.push(`技术面 ${technical.summarySignal}`);
+    }
+    if (sentiment.signal) {
+      points.push(`情绪 ${sentiment.signal}`);
+    }
+    if (liquidity.liquidityUsd != null) {
+      points.push(`流动性 ${this.formatCompactUsd(liquidity.liquidityUsd)}`);
+    }
+    // 降级数据不展示给用户，只记录在后端日志
+    if (execution.missingEvidence.length > 0) {
+      points.push(`缺失证据: ${execution.missingEvidence.join(', ')}`);
+    }
+    return points;
+  }
+
+  private buildAlertsSummary(alerts: AlertsSnapshot): string[] {
+    const points: string[] = [
+      `风险等级 ${alerts.alertLevel}`,
+      `风险状态 ${alerts.riskState}`,
+    ];
+    if (alerts.redCount > 0 || alerts.yellowCount > 0) {
+      points.push(`红色 ${alerts.redCount} / 黄色 ${alerts.yellowCount}`);
+    }
+    for (const item of alerts.items.slice(0, 3)) {
+      points.push(item.message);
+    }
+    return points;
+  }
+
+  private formatUsd(value: number): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: value >= 100 ? 0 : 2,
+    }).format(value);
+  }
+
+  private formatCompactUsd(value: number): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      notation: 'compact',
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+
+  private formatPct(value: number): string {
+    const sign = value > 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
   }
 
   private requireField<T>(value: T | undefined, field: string): T {

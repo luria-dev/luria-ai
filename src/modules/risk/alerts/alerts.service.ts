@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   AlertsSnapshot,
   CexNetflowSnapshot,
@@ -10,6 +10,7 @@ import {
 
 @Injectable()
 export class AlertsService {
+  private readonly logger = new Logger(AlertsService.name);
   readonly moduleName = 'alerts';
 
   getStatus() {
@@ -108,11 +109,18 @@ export class AlertsService {
       input.liquidity.degraded ||
       input.tokenomics.degraded
     ) {
-      items.push({
-        code: 'DATA_DEGRADED',
-        severity: 'warning',
-        message: 'One or more upstream data sources are degraded.',
-      });
+      const degradedSources: string[] = [];
+      if (input.price.degraded) degradedSources.push('price');
+      if (input.onchain.degraded) degradedSources.push('onchain');
+      if (input.security.degraded) degradedSources.push('security');
+      if (input.liquidity.degraded) degradedSources.push('liquidity');
+      if (input.tokenomics.degraded) degradedSources.push('tokenomics');
+
+      this.logger.warn(
+        `Data sources degraded: ${degradedSources.join(', ')}`,
+      );
+
+      // 不添加到 items，避免展示给用户
       alertType.add('data_degraded');
     }
 

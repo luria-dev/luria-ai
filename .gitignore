@@ -13,8 +13,7 @@
 /.temp
 /.tmp
 fortest
-.env
-.env.*
+
 
 *.log
 pnpm-debug.log*

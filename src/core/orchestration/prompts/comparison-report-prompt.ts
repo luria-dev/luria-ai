@@ -1,5 +1,5 @@
 export type ComparisonReportTemplateInput = {
-  language: 'zh' | 'en';
+  language: 'zh' | 'en' | 'cn';
   query: string;
   winner: {
     symbol: string;
@@ -21,7 +21,7 @@ export type ComparisonReportTemplate = {
 export function buildComparisonReportTemplate(
   input: ComparisonReportTemplateInput,
 ): ComparisonReportTemplate {
-  const isZh = input.language === 'zh';
+  const isZh = input.language === 'zh' || input.language === 'cn';
 
   const summary = input.winner
     ? isZh

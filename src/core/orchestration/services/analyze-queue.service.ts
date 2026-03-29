@@ -5,6 +5,8 @@ import type { AnalyzeJobData, QueueMode } from '../orchestration.types';
 @Injectable()
 export class AnalyzeQueueService {
   private readonly logger = new Logger(AnalyzeQueueService.name);
+  private readonly queueAllowed =
+    (process.env.ANALYZE_QUEUE_ENABLED ?? 'true').toLowerCase() !== 'false';
   private queue?: Queue<AnalyzeJobData>;
   private worker?: Worker<AnalyzeJobData>;
   private queueInitPromise?: Promise<boolean>;
@@ -16,6 +18,12 @@ export class AnalyzeQueueService {
     processor: (data: AnalyzeJobData) => Promise<void>,
   ): Promise<QueueMode> {
     this.processor = processor;
+    if (!this.queueAllowed) {
+      setImmediate(() => {
+        void processor(data);
+      });
+      return 'inline_fallback';
+    }
     const ready = await this.ensureQueue();
     if (!ready || !this.queue) {
       setImmediate(() => {
@@ -69,12 +77,19 @@ export class AnalyzeQueueService {
     const port = Number(process.env.REDIS_PORT ?? 6379);
     const password = process.env.REDIS_PASSWORD || undefined;
     const concurrency = Number(process.env.ANALYZE_QUEUE_CONCURRENCY ?? 4);
+    const readyTimeoutMs = Number(
+      process.env.ANALYZE_QUEUE_READY_TIMEOUT_MS ?? 1500,
+    );
     const queueName = this.resolveQueueName();
     const connection = {
       host,
       port,
       password,
       maxRetriesPerRequest: null,
+      lazyConnect: true,
+      enableReadyCheck: false,
+      connectTimeout: readyTimeoutMs,
+      commandTimeout: readyTimeoutMs,
     };
 
     try {
@@ -121,8 +136,16 @@ export class AnalyzeQueueService {
         );
       });
 
-      await this.queue.waitUntilReady();
-      await this.worker.waitUntilReady();
+      await this.waitUntilReadyWithTimeout(
+        this.queue.waitUntilReady(),
+        readyTimeoutMs,
+        'queue',
+      );
+      await this.waitUntilReadyWithTimeout(
+        this.worker.waitUntilReady(),
+        readyTimeoutMs,
+        'worker',
+      );
       this.queueEnabled = true;
       this.logger.log(
         `Analyze queue enabled on ${host}:${port} (${queueName}).`,
@@ -160,6 +183,26 @@ export class AnalyzeQueueService {
 
     this.queueEnabled = false;
       this.queueInitPromise = undefined;
+  }
+
+  private async waitUntilReadyWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: 'queue' | 'worker',
+  ): Promise<T> {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        const timer = setTimeout(() => {
+          reject(
+            new Error(
+              `BullMQ ${label} waitUntilReady timed out after ${timeoutMs}ms`,
+            ),
+          );
+        }, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
   }
 
   private resolveQueueName(): string {

@@ -850,7 +850,7 @@ Return "body" as one Markdown string.
 
   private humanizeComparisonReasons(
     reasons: string[],
-    language: 'zh' | 'en',
+    language: 'zh' | 'en' | 'cn',
   ): string {
     const verdictReason = reasons.find((reason) => reason.startsWith('analysis='));
     const confidenceReason = reasons.find((reason) => reason.startsWith('confidence='));

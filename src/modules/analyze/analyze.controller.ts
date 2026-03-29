@@ -19,9 +19,11 @@ export class AnalyzeController {
   analyze(@Body() body: AnalyzeDto) {
     return this.orchestrator.analyzeMessage({
       message: body.message,
+      mode: body.mode ?? 'instant',
+      lang: body.lang ?? 'cn',
       requestId: body.request_id ?? null,
       threadId: body.thread_id ?? null,
-      timeWindow: body.time_window ?? '24h',
+      timeWindow: this.resolveTimeWindow(body.message, body.time_window),
       preferredChain: body.preferred_chain ?? null,
     });
   }
@@ -48,5 +50,25 @@ export class AnalyzeController {
     return {
       identitySearch: this.orchestrator.getSearchCacheMetrics(),
     };
+  }
+
+  private resolveTimeWindow(
+    message: string,
+    requested?: '24h' | '7d',
+  ): '24h' | '7d' {
+    if (requested) {
+      return requested;
+    }
+
+    const normalized = message.toLowerCase();
+    if (
+      /(?:7\s*d|7day|7 days|7天|七天|一周|1周|一星期|weekly|week)/i.test(
+        normalized,
+      )
+    ) {
+      return '7d';
+    }
+
+    return '24h';
   }
 }

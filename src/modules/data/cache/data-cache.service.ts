@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '../../../../generated/prisma/client';
 import { PrismaService } from '../../../core/persistence/prisma.service';
 import type { AnalyzeIdentity } from '../../../data/contracts/analyze-contracts';
@@ -11,7 +11,7 @@ export class DataCacheService {
   private dbUnavailable = false;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Optional() private readonly prisma: PrismaService | null,
     private readonly cachePolicy: CachePolicyService,
   ) {}
 
@@ -77,7 +77,7 @@ export class DataCacheService {
     }
 
     try {
-      const snapshot = await this.prisma.dataSnapshot.findUnique({
+      const snapshot = await this.prisma!.dataSnapshot.findUnique({
         where: { cacheKey },
         select: {
           id: true,
@@ -107,7 +107,7 @@ export class DataCacheService {
     }
 
     try {
-      const asset = await this.prisma.asset.upsert({
+      const asset = await this.prisma!.asset.upsert({
         where: { sourceId: input.identity.sourceId },
         update: {
           symbol: input.identity.symbol,
@@ -131,7 +131,7 @@ export class DataCacheService {
         fetchedAt.getTime() + input.policy.ttlSeconds * 1000,
       );
 
-      await this.prisma.dataSnapshot.upsert({
+      await this.prisma!.dataSnapshot.upsert({
         where: { cacheKey: input.cacheKey },
         update: {
           assetId: asset.id,
@@ -166,7 +166,7 @@ export class DataCacheService {
       return;
     }
 
-    void this.prisma.dataSnapshot
+    void this.prisma!.dataSnapshot
       .update({
         where: { id },
         data: {
@@ -255,7 +255,7 @@ export class DataCacheService {
   }
 
   private isDbReady(): boolean {
-    return this.prisma.isConfigured() && !this.dbUnavailable;
+    return Boolean(this.prisma?.isConfigured()) && !this.dbUnavailable;
   }
 
   private disableDb(operation: string, error: unknown): void {

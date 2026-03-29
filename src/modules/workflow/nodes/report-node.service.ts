@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type {
   AlertsSnapshot,
@@ -33,6 +33,8 @@ type RenderReportInput = {
 
 @Injectable()
 export class ReportNodeService {
+  private readonly logger = new Logger(ReportNodeService.name);
+
   constructor(private readonly llmRuntime: LlmRuntimeService) {}
 
   buildDeterministicOnly(input: RenderReportInput): ReportOutput {
@@ -86,11 +88,32 @@ export class ReportNodeService {
       },
       signals: {
         technical: technical.summarySignal,
+        technicalDetails: {
+          rsi: { value: technical.rsi.value, signal: technical.rsi.signal },
+          macd: { value: technical.macd.macd, signal: technical.macd.signal, histogram: technical.macd.histogram },
+          ma: { ma7: technical.ma.ma7, ma25: technical.ma.ma25, ma99: technical.ma.ma99, signal: technical.ma.signal },
+          boll: { upper: technical.boll.upper, middle: technical.boll.middle, lower: technical.boll.lower, signal: technical.boll.signal },
+          atr: technical.atr.value,
+          swingHigh: technical.swingHigh,
+          swingLow: technical.swingLow,
+        },
         onchain: onchain.signal,
         sentiment: sentiment.signal,
+        sentimentDetails: {
+          socialVolume: sentiment.socialVolume,
+          sentimentScore: sentiment.sentimentScore,
+          sentimentPositive: sentiment.sentimentPositive,
+          sentimentNegative: sentiment.sentimentNegative,
+          devActivity: sentiment.devActivity,
+        },
         securityRisk: security.riskLevel,
         liquidityUsd: liquidity.liquidityUsd,
-        liquidityRisk: liquidity.rugpullRiskSignal,
+        liquidityDetails: {
+          volume24hUsd: liquidity.volume24hUsd,
+          liquidityDrop1hPct: liquidity.liquidityDrop1hPct,
+          priceImpact1kPct: liquidity.priceImpact1kPct,
+          rugpullRiskSignal: liquidity.rugpullRiskSignal,
+        },
         inflationRate: tokenomics.inflationRate.currentAnnualPct,
         projectName: fundamentals.profile.name,
         projectOneLiner: fundamentals.profile.oneLiner,
@@ -335,11 +358,10 @@ export class ReportNodeService {
       );
     }
     if (execution.degradedNodes.length > 0) {
-      qualityPoints.push(
-        isZh
-          ? `当前仍有降级数据：${execution.degradedNodes.join('、')}，因此结论不是满置信度。`
-          : `Some inputs are still degraded: ${execution.degradedNodes.join(', ')}, so confidence should not be treated as full strength.`,
+      this.logger.warn(
+        `Degraded data sources: ${execution.degradedNodes.join(', ')}`,
       );
+      // 不添加到 qualityPoints，避免展示给用户
     }
     if (execution.missingEvidence.length > 0) {
       qualityPoints.push(

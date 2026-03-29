@@ -1,8 +1,19 @@
 import { IsIn, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class AnalyzeDto {
   @IsString()
   message!: string;
+
+  @IsOptional()
+  @IsIn(['instant', 'deep'])
+  @Transform(({ value }) => value || undefined)
+  mode?: 'instant' | 'deep';
+
+  @IsOptional()
+  @IsIn(['cn', 'en'])
+  @Transform(({ value }) => value || undefined)
+  lang?: 'cn' | 'en';
 
   @IsOptional()
   @IsString()

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../core/persistence/prisma.service';
 import type { IntentOutput } from '../../../data/contracts/workflow-contracts';
 import type { CachePolicyResolved, CacheableDataType } from './cache.types';
@@ -47,7 +47,7 @@ export class CachePolicyService {
   private readonly logger = new Logger(CachePolicyService.name);
   private dbUnavailable = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Optional() private readonly prisma: PrismaService | null) {}
 
   async resolve(
     dataType: CacheableDataType,
@@ -56,7 +56,7 @@ export class CachePolicyService {
   ): Promise<CachePolicyResolved> {
     const fallback = this.buildDefaultPolicy(dataType);
 
-    if (!this.prisma.isConfigured() || this.dbUnavailable) {
+    if (!this.prisma?.isConfigured() || this.dbUnavailable) {
       return fallback;
     }
 

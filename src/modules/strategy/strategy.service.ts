@@ -309,30 +309,32 @@ export class StrategyService {
 
   private buildSupportLevels(price: PriceSnapshot, technical: TechnicalSnapshot): PriceLevel[] {
     const levels: PriceLevel[] = [];
+    const currentPrice = price.priceUsd;
+    if (currentPrice === null) return levels;
 
-    // BOLL bands
-    if (technical.boll.lower !== null) {
+    // BOLL bands (only if below current price)
+    if (technical.boll.lower !== null && technical.boll.lower < currentPrice) {
       levels.push({ price: technical.boll.lower, source: 'boll_lower', label: `BOLL Lower ($${this.fmtPrice(technical.boll.lower)})`, strength: 'strong' });
     }
-    if (technical.boll.middle !== null) {
+    if (technical.boll.middle !== null && technical.boll.middle < currentPrice) {
       levels.push({ price: technical.boll.middle, source: 'boll_middle', label: `BOLL Middle ($${this.fmtPrice(technical.boll.middle)})`, strength: 'medium' });
     }
 
-    // Moving Averages
-    if (technical.ma.ma25 !== null) {
+    // Moving Averages (only if below current price)
+    if (technical.ma.ma25 !== null && technical.ma.ma25 < currentPrice) {
       levels.push({ price: technical.ma.ma25, source: 'ma25', label: `MA25 ($${this.fmtPrice(technical.ma.ma25)})`, strength: 'medium' });
     }
-    if (technical.ma.ma99 !== null) {
+    if (technical.ma.ma99 !== null && technical.ma.ma99 < currentPrice) {
       levels.push({ price: technical.ma.ma99, source: 'ma99', label: `MA99 ($${this.fmtPrice(technical.ma.ma99)})`, strength: 'strong' });
     }
 
-    // Swing Low
-    if (technical.swingLow !== null) {
+    // Swing Low (only if below current price)
+    if (technical.swingLow !== null && technical.swingLow < currentPrice) {
       levels.push({ price: technical.swingLow, source: 'swing_low', label: `Swing Low ($${this.fmtPrice(technical.swingLow)})`, strength: 'strong' });
     }
 
     // ATL
-    if (price.atlUsd !== null) {
+    if (price.atlUsd !== null && price.atlUsd < currentPrice) {
       levels.push({ price: price.atlUsd, source: 'atl', label: `All-Time Low ($${this.fmtPrice(price.atlUsd)})`, strength: 'strong' });
     }
 
@@ -360,36 +362,36 @@ export class StrategyService {
 
   private buildResistanceLevels(price: PriceSnapshot, technical: TechnicalSnapshot): PriceLevel[] {
     const levels: PriceLevel[] = [];
+    const currentPrice = price.priceUsd;
+    if (currentPrice === null) return levels;
 
-    // BOLL upper
-    if (technical.boll.upper !== null) {
+    // BOLL upper (only if above current price)
+    if (technical.boll.upper !== null && technical.boll.upper > currentPrice) {
       levels.push({ price: technical.boll.upper, source: 'boll_upper', label: `BOLL Upper ($${this.fmtPrice(technical.boll.upper)})`, strength: 'strong' });
     }
 
-    // Swing High
-    if (technical.swingHigh !== null) {
+    // Swing High (only if above current price)
+    if (technical.swingHigh !== null && technical.swingHigh > currentPrice) {
       levels.push({ price: technical.swingHigh, source: 'swing_high', label: `Swing High ($${this.fmtPrice(technical.swingHigh)})`, strength: 'strong' });
     }
 
     // ATH
-    if (price.athUsd !== null) {
+    if (price.athUsd !== null && price.athUsd > currentPrice) {
       levels.push({ price: price.athUsd, source: 'ath', label: `All-Time High ($${this.fmtPrice(price.athUsd)})`, strength: 'strong' });
     }
 
     // Fibonacci levels above current price
     const fibLevels = this.calculateFibonacciLevels(price, technical);
     for (const fib of fibLevels) {
-      if (price.priceUsd !== null && fib.price > price.priceUsd) {
+      if (fib.price > currentPrice) {
         levels.push(fib);
       }
     }
 
     // Psychological levels
-    if (price.priceUsd !== null) {
-      const psych = this.findPsychologicalLevel(price.priceUsd, 'above');
-      if (psych !== null) {
-        levels.push({ price: psych, source: 'psychological', label: `心理关口 ($${this.fmtPrice(psych)})`, strength: 'medium' });
-      }
+    const psych = this.findPsychologicalLevel(currentPrice, 'above');
+    if (psych !== null) {
+      levels.push({ price: psych, source: 'psychological', label: `心理关口 ($${this.fmtPrice(psych)})`, strength: 'medium' });
     }
 
     // Sort by price ascending (closest resistance first)

@@ -41,6 +41,9 @@ import type {
   AnalyzeJobData,
   AnalyzeJobTarget,
   AnalyzeStreamEventName,
+  OutputLanguage,
+  RequestLang,
+  RequestMode,
   RequestState,
   RequestTarget,
   TargetPipeline,
@@ -48,6 +51,7 @@ import type {
 import { RequestStateService } from './services/request-state.service';
 import { AnalyzeQueueService } from './services/analyze-queue.service';
 import { ComparisonService } from './services/comparison.service';
+import { InstantChatService } from './services/instant-chat.service';
 
 @Injectable()
 export class AnalyzeOrchestratorService implements OnModuleDestroy {
@@ -72,10 +76,13 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     private readonly requestState: RequestStateService,
     private readonly analyzeQueue: AnalyzeQueueService,
     private readonly comparison: ComparisonService,
+    private readonly instantChat: InstantChatService,
   ) {}
 
   async analyzeMessage(input: {
     message: string;
+    mode: RequestMode;
+    lang: RequestLang;
     requestId: string | null;
     threadId: string | null;
     timeWindow: '24h' | '7d';
@@ -90,8 +97,27 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         mode: input.requestId ? 'continued' : 'created',
         nextAction: 'clarify_input',
         errorCode: 'INVALID_SELECTION',
-        message: 'Message is required.',
+        message: this.localize(
+          input.lang,
+          '消息内容不能为空。',
+          'Message is required.',
+        ),
       };
+    }
+
+    if (input.mode === 'instant') {
+      const threadId = this.normalizeOrCreateThreadId(input.threadId);
+      return this.toSubmitResponse(
+        await this.bootstrapInstant(
+          message,
+          input.lang,
+          input.timeWindow,
+          input.preferredChain,
+          threadId,
+        ),
+        threadId,
+        'created',
+      );
     }
 
     if (!input.requestId) {
@@ -99,6 +125,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       return this.toSubmitResponse(
         await this.bootstrap(
           message,
+          'deep',
+          input.lang,
           input.timeWindow,
           input.preferredChain,
           threadId,
@@ -117,7 +145,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         mode: 'continued',
         nextAction: 'request_not_found',
         errorCode: 'REQUEST_NOT_FOUND',
-        message: 'Request not found.',
+        message: this.localize(input.lang, '请求不存在。', 'Request not found.'),
       };
     }
 
@@ -149,7 +177,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           nextAction: 'clarify_input',
           errorCode: 'AMBIGUOUS_USER_REPLY',
           message:
-            'Could not map your reply to a candidate. Please answer with the token symbol or exact name.',
+            this.localize(
+              existing.lang,
+              '无法将你的回复映射到候选标的，请直接回复代币符号或精确名称。',
+              'Could not map your reply to a candidate. Please answer with the token symbol or exact name.',
+            ),
           payload: {
             candidates: existing.candidates,
             pendingTargets: existing.targets
@@ -163,6 +195,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     return this.toSubmitResponse(
       await this.bootstrap(
         message,
+        'deep',
+        input.lang,
         existing.timeWindow,
         existing.preferredChain,
         resolvedThreadId,
@@ -174,6 +208,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
 
   async bootstrap(
     query: string,
+    mode: RequestMode,
+    lang: RequestLang,
     timeWindow: '24h' | '7d' = '24h',
     preferredChain: string | null = null,
     threadId: string | null = null,
@@ -187,6 +223,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       requestId,
       status: 'pending',
       threadId: normalizedThreadId,
+      mode,
+      lang,
       query,
       timeWindow,
       preferredChain,
@@ -194,27 +232,33 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       candidates: [],
       payload: {
         query,
+        mode,
+        lang,
         timeWindow,
         memoUsed: Boolean(memo),
         threadId: normalizedThreadId,
         targets: [],
         phase: 'queued',
-        label: '请求已受理',
-        progressPct: 5,
+        ...this.progressMeta('queued', lang),
         architecture: this.getModuleReadiness(),
-        note:
+        note: this.localize(
+          lang,
+          '请求已受理，正在排队进行问题理解和标的识别。',
           'Analyze job is queued and waiting for intent parsing and target resolution.',
+        ),
       },
     });
     const queueMode = await this.enqueueAnalyzeJob({
       requestId,
       threadId: normalizedThreadId,
+      mode,
+      lang,
       query,
       timeWindow,
       preferredChain,
       targets: [],
     });
-    this.emitProgressEvent(requestId, 'queued', 'pending', {
+    this.emitProgressEvent(requestId, 'queued', 'pending', lang, {
       queueMode,
       targetCount: 0,
     });
@@ -223,21 +267,148 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       status: 'accepted',
       requestId,
       nextAction: 'run_pipeline',
-      message: 'Analyze job accepted and queued for preparation.',
+      message: this.localize(
+        lang,
+        '请求已受理，正在进入准备阶段。',
+        'Analyze job accepted and queued for preparation.',
+      ),
       payload: {
         memoUsed: Boolean(memo),
         threadId: normalizedThreadId,
+        mode,
+        lang,
         targets: [],
         phase: 'queued',
-        label: '请求已受理',
-        progressPct: 5,
+        ...this.progressMeta('queued', lang),
         queue: {
           mode: queueMode,
         },
-        note:
+        note: this.localize(
+          lang,
+          '系统将先异步完成问题理解与标的识别，再进入分析流程。',
           'Intent parsing and target resolution will run asynchronously before workflow execution.',
+        ),
       },
     };
+  }
+
+  async bootstrapInstant(
+    query: string,
+    lang: RequestLang,
+    timeWindow: '24h' | '7d' = '24h',
+    preferredChain: string | null = null,
+    threadId: string | null = null,
+  ): Promise<AnalyzeBootstrapResponse> {
+    const resolvedThreadId = this.normalizeOrCreateThreadId(threadId);
+    const requestId = randomUUID();
+
+    // 创建初始状态
+    const initialState: RequestState = {
+      requestId,
+      query,
+      mode: 'instant',
+      lang,
+      timeWindow,
+      threadId: resolvedThreadId,
+      targets: [],
+      status: 'pending',
+      preferredChain,
+      candidates: [],
+      payload: {
+        phase: 'instant_reply',
+        label: this.localize(lang, '正在生成快速回答', 'Generating quick answer'),
+        progressPct: 50,
+      },
+    };
+    await this.requestState.set(initialState);
+
+    // 异步执行 instant chat，不阻塞响应
+    void this.executeInstantChat(requestId, resolvedThreadId, query, timeWindow, lang);
+
+    return {
+      status: 'accepted',
+      requestId,
+      nextAction: 'run_pipeline',
+      message: this.localize(
+        lang,
+        '快问快答请求已受理���正在生成回答。',
+        'Instant request accepted. Generating a quick answer.',
+      ),
+      payload: {
+        query,
+        mode: 'instant' as const,
+        lang,
+        timeWindow,
+        memoUsed: false,
+        threadId: resolvedThreadId,
+        targets: [],
+        phase: 'instant_reply' as const,
+        label: this.localize(lang, '正在生成快速回答', 'Generating quick answer'),
+        progressPct: 50,
+        note: this.localize(
+          lang,
+          '快问快答请求已受理，正在生成回答。',
+          'Instant request accepted. Generating a quick answer.',
+        ),
+        preferredChain,
+        candidates: [],
+      },
+    };
+  }
+
+  private async executeInstantChat(
+    requestId: string,
+    threadId: string,
+    message: string,
+    timeWindow: '24h' | '7d',
+    lang: RequestLang,
+  ): Promise<void> {
+    try {
+      const result = await this.instantChat.reply({
+        threadId,
+        requestId,
+        message,
+        timeWindow,
+        lang,
+      });
+
+      // 获取当前状态并更新
+      const state = await this.requestState.get(requestId);
+      if (state) {
+        await this.requestState.set({
+          ...state,
+          status: 'ready',
+          payload: {
+            ...state.payload,
+            phase: 'completed',
+            progressPct: 100,
+            report: {
+              body: result.body,
+            },
+          },
+        });
+        // 发送 SSE 完成事件
+        this.requestState.emitEvent(requestId, 'completed', 'ready', {
+          phase: 'completed',
+          progressPct: 100,
+          report: { body: result.body },
+        });
+      }
+    } catch (error) {
+      this.logger.error(`Instant chat failed for ${requestId}:`, error);
+      const state = await this.requestState.get(requestId);
+      if (state) {
+        await this.requestState.set({
+          ...state,
+          status: 'failed',
+          payload: {
+            ...state.payload,
+            phase: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+    }
   }
 
   async select(
@@ -253,7 +424,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         requestId,
         nextAction: 'invalid_selection',
         errorCode: 'REQUEST_NOT_FOUND',
-        message: 'Request not found.',
+        message: this.localize('cn', '请求不存在。', 'Request not found.'),
       };
     }
 
@@ -266,7 +437,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         requestId,
         nextAction: 'invalid_selection',
         errorCode: 'INVALID_SELECTION',
-        message: 'No pending candidate selection for this request.',
+        message: this.localize(
+          existing.lang,
+          '当前请求没有待确认的候选标的。',
+          'No pending candidate selection for this request.',
+        ),
       };
     }
 
@@ -287,8 +462,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           requestId,
           nextAction: 'invalid_selection',
           errorCode: 'TARGET_KEY_REQUIRED',
-          message:
+          message: this.localize(
+            existing.lang,
+            '当前有多个标的等待确认，请提供 target_key。',
             'Multiple target selections are pending. Please provide target_key.',
+          ),
         };
       }
     }
@@ -299,7 +477,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         requestId,
         nextAction: 'invalid_selection',
         errorCode: 'INVALID_SELECTION',
-        message: 'Target key is invalid for this request.',
+        message: this.localize(
+          existing.lang,
+          'target_key 与当前请求不匹配。',
+          'Target key is invalid for this request.',
+        ),
       };
     }
 
@@ -312,7 +494,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         requestId,
         nextAction: 'invalid_selection',
         errorCode: 'INVALID_SELECTION',
-        message: 'Candidate does not belong to the selected target.',
+        message: this.localize(
+          existing.lang,
+          '该候选项不属于当前选中的标的。',
+          'Candidate does not belong to the selected target.',
+        ),
       };
     }
 
@@ -329,7 +515,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         requestId,
         nextAction: 'invalid_selection',
         errorCode: 'INVALID_SELECTION',
-        message: 'Candidate is invalid.',
+        message: this.localize(
+          existing.lang,
+          '候选项无效。',
+          'Candidate is invalid.',
+        ),
       };
     }
 
@@ -356,7 +546,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         pendingTargets: remainingPendingTargets.map(
           (target) => target.targetKey,
         ),
-        note: 'Selection recorded. More target selections are required before queueing.',
+        note: this.localize(
+          existing.lang,
+          '已记录当前选择，仍有其他标的等待确认。',
+          'Selection recorded. More target selections are required before queueing.',
+        ),
       };
       await this.requestState.set(existing);
 
@@ -364,9 +558,15 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         status: 'accepted',
         requestId,
         nextAction: 'selection_recorded',
-        message: `Selection accepted for ${targetToSelect.targetKey}. Waiting for remaining targets: ${remainingPendingTargets
-          .map((target) => target.targetKey)
-          .join(', ')}.`,
+        message: this.localize(
+          existing.lang,
+          `已确认 ${targetToSelect.targetKey}，仍需确认：${remainingPendingTargets
+            .map((target) => target.targetKey)
+            .join('、')}。`,
+          `Selection accepted for ${targetToSelect.targetKey}. Waiting for remaining targets: ${remainingPendingTargets
+            .map((target) => target.targetKey)
+            .join(', ')}.`,
+        ),
         payload: {
           pendingTargets: remainingPendingTargets.map(
             (target) => target.targetKey,
@@ -382,7 +582,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       selectedTargetKey: targetToSelect.targetKey,
       identity: existing.identity,
       targets: readyTargets,
-      note: 'Selection recorded. Analyze job is queued and waiting for worker execution.',
+      note: this.localize(
+        existing.lang,
+        '已记录当前选择，请求正在排队等待执行。',
+        'Selection recorded. Analyze job is queued and waiting for worker execution.',
+      ),
     };
 
     if (readyTargets.length === 0) {
@@ -391,7 +595,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       existing.payload = {
         ...existing.payload,
         errorCode: 'INVALID_SELECTION',
-        errorMessage: 'No resolved targets after selection.',
+        errorMessage: this.localize(
+          existing.lang,
+          '选择后没有得到可分析的已解析标的。',
+          'No resolved targets after selection.',
+        ),
       };
       await this.requestState.set(existing);
       return {
@@ -399,7 +607,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         requestId,
         nextAction: 'invalid_selection',
         errorCode: 'INVALID_SELECTION',
-        message: 'No resolved targets available for analysis.',
+        message: this.localize(
+          existing.lang,
+          '没有可用于分析的已解析标的。',
+          'No resolved targets available for analysis.',
+        ),
       };
     }
 
@@ -407,6 +619,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     const queueMode = await this.enqueueAnalyzeJob({
       requestId,
       threadId: existing.threadId,
+      mode: existing.mode,
+      lang: existing.lang,
       query: existing.query,
       timeWindow: existing.timeWindow,
       preferredChain: existing.preferredChain,
@@ -415,9 +629,13 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       intentMeta: existing.intentMeta,
     });
     await this.updateRequestProgress(existing, 'queued', 'pending', {
-      note: 'Selection accepted. Analyze job is queued and waiting for worker execution.',
+      note: this.localize(
+        existing.lang,
+        '已记录你的选择，请求正在排队等待执行。',
+        'Selection accepted. Analyze job is queued and waiting for worker execution.',
+      ),
     });
-    this.emitProgressEvent(requestId, 'queued', 'pending', {
+    this.emitProgressEvent(requestId, 'queued', 'pending', existing.lang, {
       queueMode,
       targetCount: readyTargets.length,
     });
@@ -426,7 +644,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       status: 'accepted',
       requestId,
       nextAction: 'selection_recorded',
-      message: `Selection accepted. Job queued (${queueMode}) for ${readyTargets.length} target(s).`,
+      message: this.localize(
+        existing.lang,
+        `已确认选择，任务已进入队列（${queueMode}），共 ${readyTargets.length} 个标的。`,
+        `Selection accepted. Job queued (${queueMode}) for ${readyTargets.length} target(s).`,
+      ),
     };
   }
 
@@ -449,15 +671,21 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       requestId,
       message:
         existing.status === 'ready'
-          ? 'Pipeline skeleton ready.'
+          ? this.localize(existing.lang, '结果已就绪。', 'Result is ready.')
           : existing.status === 'waiting_selection'
-            ? 'Waiting for candidate selection.'
+            ? this.localize(
+                existing.lang,
+                '等待你确认候选标的。',
+                'Waiting for candidate selection.',
+              )
             : existing.status === 'failed'
-              ? 'Pipeline failed.'
-              : 'Pipeline pending.',
+              ? this.localize(existing.lang, '分析失败。', 'Pipeline failed.')
+              : this.localize(existing.lang, '分析进行中。', 'Pipeline pending.'),
       payload: {
         ...existing.payload,
         threadId: existing.threadId,
+        mode: existing.mode,
+        lang: existing.lang,
         query: existing.query,
         timeWindow: existing.timeWindow,
         preferredChain: existing.preferredChain,
@@ -545,12 +773,17 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     }
 
     await this.updateRequestProgress(request, 'job_started', 'pending', {
-      note:
+      note: this.localize(
+        request.lang,
         data.targets.length > 0
           ? '已收到用户确认，开始执行分析流程。'
           : '工作线程已接单，开始准备分析上下文。',
+        data.targets.length > 0
+          ? 'User confirmation received. Starting the analysis flow.'
+          : 'Worker accepted the job and is preparing the analysis context.',
+      ),
     });
-    this.emitProgressEvent(data.requestId, 'job_started', 'pending', {
+    this.emitProgressEvent(data.requestId, 'job_started', 'pending', request.lang, {
       queue: this.analyzeQueue.isQueueEnabled() ? 'bullmq' : 'inline_fallback',
       targetCount: data.targets.length,
       phase: data.targets.length > 0 ? 'workflow_execution' : 'preparation',
@@ -559,6 +792,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     let executionData = data;
 
     try {
+      if (data.mode === 'instant') {
+        await this.processInstantJob(data, request);
+        return;
+      }
+
       const prepared = await this.prepareJobExecution(data, request);
       if (!prepared) {
         return;
@@ -572,16 +810,22 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         'intent_done',
         'pending',
         {
-          note:
+          note: this.localize(
+            request.lang,
             executionData.targets.length > 0
               ? '问题已理解，准备开始规划分析步骤。'
               : '问题已理解，开始识别分析标的。',
+            executionData.targets.length > 0
+              ? 'Question understood. Preparing the analysis plan.'
+              : 'Question understood. Starting target resolution.',
+          ),
         },
       );
       this.emitProgressEvent(
         executionData.requestId,
         'intent_done',
         'pending',
+        request.lang,
         {
           taskType: orchestrationIntent.taskType,
           entities: orchestrationIntent.entities,
@@ -593,7 +837,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         'workflow_started',
         'pending',
         {
-          note: '已完成准备，开始执行分析工作流。',
+          note: this.localize(
+            request.lang,
+            '已完成准备，开始执行分析工作流。',
+            'Preparation completed. Starting the analysis workflow.',
+          ),
           targets: executionData.targets,
         },
       );
@@ -601,6 +849,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         executionData.requestId,
         'workflow_started',
         'pending',
+        request.lang,
         {
           targetCount: executionData.targets.length,
           targetKeys: executionData.targets.map((target) => target.targetKey),
@@ -624,17 +873,23 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
                 streamEvent,
                 'pending',
                 {
-                  note: this.stageEventNote(stageEvent, target.identity.symbol),
+                  note: this.stageEventNote(
+                    stageEvent,
+                    target.identity.symbol,
+                    request.lang,
+                  ),
                 },
               );
               this.emitProgressEvent(
                 executionData.requestId,
                 streamEvent,
                 'pending',
+                request.lang,
                 {
                   stage: stageEvent.stage,
                   stageStatus: stageEvent.status,
                   stageTimestamp: stageEvent.timestamp,
+                  ...stageEvent.data,
                   targetKey: target.targetKey,
                   symbol: target.identity.symbol,
                   chain: target.identity.chain,
@@ -721,6 +976,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       current.payload = {
         ...current.payload,
         query: executionData.query,
+        mode: executionData.mode,
+        lang: executionData.lang,
         timeWindow: executionData.timeWindow,
         identity: primaryIdentity,
         ...primaryPipeline,
@@ -756,13 +1013,20 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
             })),
         comparison: comparisonPayload,
         architecture: this.getModuleReadiness(),
-        ...this.progressMeta('completed'),
-        note:
+        ...this.progressMeta('completed', request.lang),
+        note: this.localize(
+          request.lang,
+          targetPipelines.length > 1 && shouldCompare
+            ? '多标的流程已完成，并输出最终对比结论。'
+            : targetPipelines.length > 1
+              ? '多标的流程已完成，已分别输出各标的结果。'
+              : '单标的分析流程已完成。',
           targetPipelines.length > 1 && shouldCompare
             ? 'Multi-target pipeline completed with intent-driven comparison.'
             : targetPipelines.length > 1
-              ? 'Multi-target pipeline completed with per-token execution (no comparison requested).'
-              : 'Pipeline completed by worker with LangGraph orchestration.',
+              ? 'Multi-target pipeline completed with per-target execution.'
+              : 'Single-target analysis pipeline completed.',
+        ),
       };
 
       if (executionData.threadId && executionData.threadId.trim().length > 0) {
@@ -777,7 +1041,12 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       this.logger.debug(
         `processAnalyzeJob completed (${executionData.requestId}) with status=ready.`,
       );
-      this.emitProgressEvent(executionData.requestId, 'completed', 'ready');
+      this.emitProgressEvent(
+        executionData.requestId,
+        'completed',
+        'ready',
+        request.lang,
+      );
       this.requestState.completeEventStream(executionData.requestId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -796,6 +1065,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       current.payload = {
         ...current.payload,
         query: executionData.query,
+        mode: executionData.mode,
+        lang: executionData.lang,
         timeWindow: executionData.timeWindow,
         targets: executionData.targets,
         errorCode: 'WORKFLOW_EXECUTION_FAILED',
@@ -803,11 +1074,121 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         architecture: this.getModuleReadiness(),
       };
       await this.requestState.set(current);
-      this.emitProgressEvent(executionData.requestId, 'failed', 'failed', {
+      this.emitProgressEvent(
+        executionData.requestId,
+        'failed',
+        'failed',
+        current.lang,
+        {
         errorMessage: message,
-      });
+        },
+      );
       this.requestState.completeEventStream(executionData.requestId);
     }
+  }
+
+  private async processInstantJob(
+    data: AnalyzeJobData,
+    request: RequestState,
+  ): Promise<void> {
+    await this.updateRequestProgress(request, 'analysis_started', 'pending', {
+      note: this.localize(
+        request.lang,
+        '正在生成快速回答。',
+        'Generating a quick answer.',
+      ),
+      mode: data.mode,
+    });
+    this.emitProgressEvent(data.requestId, 'analysis_started', 'pending', request.lang, {
+      mode: data.mode,
+      threadId: data.threadId,
+    });
+
+    const reply = await this.instantChat.reply({
+      threadId: data.threadId ?? this.normalizeOrCreateThreadId(null),
+      requestId: data.requestId,
+      message: data.query,
+      timeWindow: data.timeWindow,
+      lang: data.lang,
+    });
+
+    await this.updateRequestProgress(request, 'analysis_done', 'pending', {
+      note: this.localize(
+        request.lang,
+        '快速回答已生成，正在整理输出。',
+        'Quick answer generated. Formatting output.',
+      ),
+      mode: data.mode,
+    });
+    this.emitProgressEvent(data.requestId, 'analysis_done', 'pending', request.lang, {
+      mode: data.mode,
+      usedPreviousResponseId: reply.usedPreviousResponseId,
+      usedLocalFallback: reply.usedLocalFallback,
+      model: reply.model,
+    });
+
+    await this.updateRequestProgress(request, 'report_started', 'pending', {
+      note: this.localize(
+        request.lang,
+        '正在整理快速回答。',
+        'Preparing the quick-answer output.',
+      ),
+      mode: data.mode,
+    });
+    this.emitProgressEvent(data.requestId, 'report_started', 'pending', request.lang, {
+      mode: data.mode,
+      model: reply.model,
+    });
+
+    await this.updateRequestProgress(request, 'report_done', 'pending', {
+      note: this.localize(
+        request.lang,
+        '快速回答已完成。',
+        'Quick answer completed.',
+      ),
+      mode: data.mode,
+    });
+    this.emitProgressEvent(data.requestId, 'report_done', 'pending', request.lang, {
+      mode: data.mode,
+      model: reply.model,
+    });
+
+    request.status = 'ready';
+    request.payload = {
+      ...request.payload,
+      query: data.query,
+      timeWindow: data.timeWindow,
+      threadId: data.threadId,
+      mode: data.mode,
+      lang: data.lang,
+      report: {
+        title: this.localize(data.lang, '快速回答', 'Quick Answer'),
+        body: reply.body,
+      },
+      architecture: this.getModuleReadiness(),
+      orchestration: {
+        mode: data.mode,
+        flow: 'instant_chat',
+        threadId: data.threadId,
+      },
+      instantMeta: {
+        model: reply.model,
+        usedPreviousResponseId: reply.usedPreviousResponseId,
+        usedLocalFallback: reply.usedLocalFallback,
+        responseId: reply.responseId,
+      },
+      ...this.progressMeta('completed', data.lang),
+      note: this.localize(
+        data.lang,
+        '快问快答已完成。',
+        'Instant chat completed with GPT-5.4.',
+      ),
+    };
+    await this.requestState.set(request);
+    this.emitProgressEvent(data.requestId, 'completed', 'ready', data.lang, {
+      mode: data.mode,
+    });
+    this.requestState.completeEventStream(data.requestId);
   }
 
   private async prepareJobExecution(
@@ -820,9 +1201,13 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         : null;
     if (!data.intentHint) {
       await this.updateRequestProgress(request, 'intent_started', 'pending', {
-        note: '正在理解用户问题与分析目标。',
+        note: this.localize(
+          request.lang,
+          '正在理解用户问题与分析目标。',
+          'Understanding the user question and analysis objective.',
+        ),
       });
-      this.emitProgressEvent(data.requestId, 'intent_started', 'pending', {
+      this.emitProgressEvent(data.requestId, 'intent_started', 'pending', request.lang, {
         query: data.query,
         timeWindow: data.timeWindow,
         preferredChain: data.preferredChain,
@@ -838,6 +1223,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
             query: data.query,
             timeWindow: data.timeWindow,
             preferredChain: data.preferredChain,
+            language: this.toOutputLanguage(data.lang),
             memo: memoForJob,
           });
     const intentHint = intentResult.intent;
@@ -854,13 +1240,23 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       };
     }
 
-    await this.updateRequestProgress(request, 'target_resolution_started', 'pending', {
-      note: '正在识别需要分析的标的。',
-    });
+    await this.updateRequestProgress(
+      request,
+      'target_resolution_started',
+      'pending',
+      {
+        note: this.localize(
+          request.lang,
+          '正在识别需要分析的标的。',
+          'Resolving the targets that need analysis.',
+        ),
+      },
+    );
     this.emitProgressEvent(
       data.requestId,
       'target_resolution_started',
       'pending',
+      request.lang,
       {
         query: data.query,
         objective: intentHint.objective,
@@ -921,18 +1317,29 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     const primaryIdentity = resolvedTargets[0]?.identity;
     const readyTargets = this.getResolvedJobTargets(targets);
 
-    await this.updateRequestProgress(request, 'target_resolution_done', 'pending', {
-      note:
-        pendingTargets.length > 0
-          ? '已识别标的，等待用户确认。'
-          : '已识别标的，准备进入分析流程。',
-      targets,
-      candidates: pendingCandidates,
-    });
+    await this.updateRequestProgress(
+      request,
+      'target_resolution_done',
+      'pending',
+      {
+        note: this.localize(
+          request.lang,
+          pendingTargets.length > 0
+            ? '已识别标的，等待用户确认。'
+            : '已识别标的，准备进入分析流程。',
+          pendingTargets.length > 0
+            ? 'Targets resolved. Waiting for user confirmation.'
+            : 'Targets resolved. Preparing to enter the analysis flow.',
+        ),
+        targets,
+        candidates: pendingCandidates,
+      },
+    );
     this.emitProgressEvent(
       data.requestId,
       'target_resolution_done',
       'pending',
+      request.lang,
       {
         totalTargets: targets.length,
         resolvedCount: resolvedTargets.length,
@@ -957,6 +1364,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       request.errorCode = 'NOT_FOUND';
       request.payload = {
         query: data.query,
+        mode: data.mode,
+        lang: data.lang,
         timeWindow: data.timeWindow,
         errorCode: 'NOT_FOUND',
         intent: intentHint,
@@ -967,10 +1376,14 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         threadId: data.threadId,
         notFoundTargets: notFoundTargets.map((item) => item.targetKey),
         architecture: this.getModuleReadiness(),
-        note: 'No matching token was found during asynchronous target resolution.',
+        note: this.localize(
+          request.lang,
+          '异步标的识别未找到匹配结果。',
+          'No matching token was found during asynchronous target resolution.',
+        ),
       };
       await this.requestState.set(request);
-      this.emitProgressEvent(data.requestId, 'failed', 'failed', {
+      this.emitProgressEvent(data.requestId, 'failed', 'failed', request.lang, {
         errorCode: 'NOT_FOUND',
         notFoundTargets: notFoundTargets.map((item) => item.targetKey),
       });
@@ -983,6 +1396,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       request.errorCode = 'NOT_FOUND';
       request.payload = {
         query: data.query,
+        mode: data.mode,
+        lang: data.lang,
         timeWindow: data.timeWindow,
         errorCode: 'NOT_FOUND',
         intent: intentHint,
@@ -997,10 +1412,14 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           identity: item.identity,
         })),
         architecture: this.getModuleReadiness(),
-        note: 'Some comparison targets could not be resolved during asynchronous preparation.',
+        note: this.localize(
+          request.lang,
+          '异步准备阶段有部分对比标的无法解析。',
+          'Some comparison targets could not be resolved during asynchronous preparation.',
+        ),
       };
       await this.requestState.set(request);
-      this.emitProgressEvent(data.requestId, 'failed', 'failed', {
+      this.emitProgressEvent(data.requestId, 'failed', 'failed', request.lang, {
         errorCode: 'NOT_FOUND',
         notFoundTargets: notFoundTargets.map((item) => item.targetKey),
       });
@@ -1012,6 +1431,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       request.status = 'waiting_selection';
       request.payload = {
         query: data.query,
+        mode: data.mode,
+        lang: data.lang,
         timeWindow: data.timeWindow,
         intent: intentHint,
         nodeStatus: {
@@ -1027,14 +1448,18 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           identity: item.identity,
         })),
         architecture: this.getModuleReadiness(),
-        note:
+        note: this.localize(
+          request.lang,
+          '在进入分析执行前，需要你先确认候选标的。',
           'Candidate selection is required before queueing workflow execution.',
+        ),
       };
       await this.requestState.set(request);
       this.emitProgressEvent(
         data.requestId,
         'selection_required',
         'waiting_selection',
+        request.lang,
         {
           ...this.requestSnapshotData(request),
           candidates: pendingCandidates,
@@ -1046,6 +1471,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     request.status = 'pending';
     request.payload = {
       query: data.query,
+      mode: data.mode,
+      lang: data.lang,
       timeWindow: data.timeWindow,
       intent: intentHint,
       nodeStatus: {
@@ -1056,11 +1483,13 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       identity: primaryIdentity,
       targets: readyTargets,
       phase: 'workflow_execution',
-      label: '开始分析',
-      progressPct: 55,
+      ...this.progressMeta('workflow_started', data.lang),
       architecture: this.getModuleReadiness(),
-      note:
+      note: this.localize(
+        data.lang,
+        '问题理解和标的识别已完成，开始执行分析工作流。',
         'Intent parsed and targets resolved. Workflow execution is starting.',
+      ),
     };
     await this.requestState.set(request);
 
@@ -1316,6 +1745,8 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
   private requestSnapshotData(request: RequestState): Record<string, unknown> {
     return {
       threadId: request.threadId,
+      mode: request.mode,
+      lang: request.lang,
       query: request.query,
       timeWindow: request.timeWindow,
       preferredChain: request.preferredChain,
@@ -1334,10 +1765,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     requestId: string,
     event: AnalyzeStreamEventName,
     status: RequestState['status'],
+    lang: RequestLang,
     data?: Record<string, unknown>,
   ): void {
     this.requestState.emitEvent(requestId, event, status, {
-      ...this.progressMeta(event),
+      ...this.progressMeta(event, lang),
       ...data,
     });
   }
@@ -1351,7 +1783,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     request.status = status;
     request.payload = {
       ...request.payload,
-      ...this.progressMeta(event),
+      ...this.progressMeta(event, request.lang),
       ...extra,
     };
     await this.requestState.set(request);
@@ -1369,120 +1801,124 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     }
     request.payload = {
       ...request.payload,
-      ...this.progressMeta(event),
+      ...this.progressMeta(event, request.lang),
       ...extra,
     };
     await this.requestState.set(request);
   }
 
-  private progressMeta(event: AnalyzeStreamEventName): Record<string, unknown> {
+  private progressMeta(
+    event: AnalyzeStreamEventName,
+    lang: RequestLang,
+  ): Record<string, unknown> {
+    const isZh = lang === 'cn';
     const mapping: Record<
       AnalyzeStreamEventName,
       { phase: string; label: string; progressPct: number }
     > = {
       snapshot: {
         phase: 'snapshot',
-        label: '状态快照',
+        label: isZh ? '状态快照' : 'Snapshot',
         progressPct: 0,
       },
       queued: {
         phase: 'queued',
-        label: '请求已受理',
+        label: isZh ? '请求已受理' : 'Request Accepted',
         progressPct: 5,
       },
       job_started: {
         phase: 'preparation',
-        label: '开始准备',
+        label: isZh ? '开始准备' : 'Preparation Started',
         progressPct: 10,
       },
       intent_started: {
         phase: 'intent',
-        label: '理解问题',
+        label: isZh ? '理解问题' : 'Understanding Request',
         progressPct: 15,
       },
       intent_done: {
         phase: 'intent',
-        label: '问题理解完成',
+        label: isZh ? '问题理解完成' : 'Request Understood',
         progressPct: 25,
       },
       target_resolution_started: {
         phase: 'target_resolution',
-        label: '识别标的',
+        label: isZh ? '识别标的' : 'Resolving Targets',
         progressPct: 35,
       },
       target_resolution_done: {
         phase: 'target_resolution',
-        label: '标的识别完成',
+        label: isZh ? '标的识别完成' : 'Targets Resolved',
         progressPct: 45,
       },
       selection_required: {
         phase: 'waiting_selection',
-        label: '等待确认标的',
+        label: isZh ? '等待确认标的' : 'Waiting For Selection',
         progressPct: 50,
       },
       workflow_started: {
         phase: 'workflow_execution',
-        label: '开始分析',
+        label: isZh ? '开始分析' : 'Analysis Started',
         progressPct: 55,
       },
       planning_started: {
         phase: 'planning',
-        label: '开始制定分析计划',
+        label: isZh ? '开始制定分析计划' : 'Planning Started',
         progressPct: 60,
       },
       planning_done: {
         phase: 'planning',
-        label: '分析计划完成',
+        label: isZh ? '分析计划完成' : 'Planning Completed',
         progressPct: 65,
       },
       executor_started: {
         phase: 'data_collection',
-        label: '开始采集数据',
+        label: isZh ? '开始采集数据' : 'Data Collection Started',
         progressPct: 70,
       },
       executor_done: {
         phase: 'data_collection',
-        label: '数据采集完成',
+        label: isZh ? '数据采集完成' : 'Data Collection Completed',
         progressPct: 78,
       },
       risk_strategy_started: {
         phase: 'risk_strategy',
-        label: '开始判断风险与策略',
+        label: isZh ? '开始判断风险与策略' : 'Risk Review Started',
         progressPct: 82,
       },
       risk_strategy_done: {
         phase: 'risk_strategy',
-        label: '风险与策略判断完成',
+        label: isZh ? '风险与策略判断完成' : 'Risk Review Completed',
         progressPct: 85,
       },
       analysis_started: {
         phase: 'analysis',
-        label: '开始综合分析',
+        label: isZh ? '开始综合分析' : 'Synthesis Started',
         progressPct: 88,
       },
       analysis_done: {
         phase: 'analysis',
-        label: '综合分析完成',
+        label: isZh ? '综合分析完成' : 'Synthesis Completed',
         progressPct: 92,
       },
       report_started: {
         phase: 'report',
-        label: '开始生成报告',
+        label: isZh ? '开始生成报告' : 'Formatting Output',
         progressPct: 95,
       },
       report_done: {
         phase: 'report',
-        label: '报告生成完成',
+        label: isZh ? '报告生成完成' : 'Output Ready',
         progressPct: 97,
       },
       completed: {
         phase: 'completed',
-        label: '分析完成',
+        label: isZh ? '分析完成' : 'Completed',
         progressPct: 100,
       },
       failed: {
         phase: 'failed',
-        label: '分析失败',
+        label: isZh ? '分析失败' : 'Failed',
         progressPct: 100,
       },
     };
@@ -1492,39 +1928,71 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
   private stageEventNote(
     event: WorkflowStageEvent,
     symbol: string,
+    lang: RequestLang,
   ): string {
     const targetLabel = symbol.trim() ? `${symbol} ` : '';
+    const isZh = lang === 'cn';
     if (event.stage === 'planning' && event.status === 'started') {
-      return `正在为 ${targetLabel}制定分析计划。`.trim();
+      return isZh
+        ? `正在为 ${targetLabel}制定分析计划。`.trim()
+        : `Building an analysis plan for ${targetLabel}`.trim();
     }
     if (event.stage === 'planning' && event.status === 'completed') {
-      return `${targetLabel}分析计划已完成。`.trim();
+      return isZh
+        ? `${targetLabel}分析计划已完成。`.trim()
+        : `${targetLabel}analysis plan completed.`.trim();
     }
     if (event.stage === 'executor' && event.status === 'started') {
-      return `正在为 ${targetLabel}采集和整理数据。`.trim();
+      return isZh
+        ? `正在为 ${targetLabel}采集和整理数据。`.trim()
+        : `Collecting and organizing data for ${targetLabel}`.trim();
     }
     if (event.stage === 'executor' && event.status === 'completed') {
-      return `${targetLabel}数据采集已完成。`.trim();
+      return isZh
+        ? `${targetLabel}数据采集已完成。`.trim()
+        : `${targetLabel}data collection completed.`.trim();
     }
     if (event.stage === 'risk_strategy' && event.status === 'started') {
-      return `正在为 ${targetLabel}判断风险和策略。`.trim();
+      return isZh
+        ? `正在为 ${targetLabel}判断风险和策略。`.trim()
+        : `Evaluating risk and strategy for ${targetLabel}`.trim();
     }
     if (event.stage === 'risk_strategy' && event.status === 'completed') {
-      return `${targetLabel}风险与策略判断已完成。`.trim();
+      return isZh
+        ? `${targetLabel}风险与策略判断已完成。`.trim()
+        : `${targetLabel}risk and strategy review completed.`.trim();
     }
     if (event.stage === 'analysis' && event.status === 'started') {
-      return `正在为 ${targetLabel}生成综合分析。`.trim();
+      return isZh
+        ? `正在为 ${targetLabel}生成综合分析。`.trim()
+        : `Producing synthesis for ${targetLabel}`.trim();
     }
     if (event.stage === 'analysis' && event.status === 'completed') {
-      return `${targetLabel}综合分析已完成。`.trim();
+      return isZh
+        ? `${targetLabel}综合分析已完成。`.trim()
+        : `${targetLabel}synthesis completed.`.trim();
     }
     if (event.stage === 'report' && event.status === 'started') {
-      return `正在为 ${targetLabel}整理分析报告。`.trim();
+      return isZh
+        ? `正在为 ${targetLabel}整理分析报告。`.trim()
+        : `Formatting the analysis output for ${targetLabel}`.trim();
     }
     if (event.stage === 'report' && event.status === 'completed') {
-      return `${targetLabel}分析报告已生成。`.trim();
+      return isZh
+        ? `${targetLabel}分析报告已生成。`.trim()
+        : `${targetLabel}analysis output generated.`.trim();
     }
-    return `正在处理 ${targetLabel}分析阶段。`.trim();
+    return isZh
+      ? `正在处理 ${targetLabel}分析阶段。`.trim()
+      : `Processing the analysis stage for ${targetLabel}`.trim();
+  }
+
+  private toOutputLanguage(lang: RequestLang): OutputLanguage {
+    return lang === 'en' ? 'en' : 'zh';
+  }
+
+  private localize(lang: RequestLang, zh: string, en: string): string {
+    return lang === 'en' ? en : zh;
   }
 
   async onModuleDestroy(): Promise<void> {

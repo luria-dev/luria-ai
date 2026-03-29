@@ -8,7 +8,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . ./
-RUN pnpm prisma generate
+RUN if [ -d "prisma" ]; then pnpm prisma generate; fi
 RUN pnpm build
 
 FROM node:20-alpine AS runner
@@ -23,7 +23,8 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
+RUN mkdir -p ./prisma
+COPY --from=builder /app/prisma ./prisma 2>/dev/null || true
 
 EXPOSE 3000
 

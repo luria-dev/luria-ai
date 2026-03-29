@@ -17,7 +17,3 @@ coverage
 test
 fortest
 
-.env
-.env.*
-**/.env
-**/.env.*

@@ -15,6 +15,13 @@ async function bootstrap() {
     { bufferLogs: true },
   );
   app.useLogger(app.get(AppLogger));
+  app.enableCors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: '*',
+    exposedHeaders: ['Content-Type', 'X-Request-Id', 'X-Trace-Id'],
+    credentials: false,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

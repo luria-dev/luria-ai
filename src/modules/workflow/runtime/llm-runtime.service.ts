@@ -12,6 +12,16 @@ type GenerateStructuredInput<T> = {
   timeoutMs?: number;
 };
 
+type GenerateTextInput = {
+  nodeName: string;
+  systemPrompt: string;
+  userPrompt: string;
+  model?: SupportedChatModel;
+  previousResponseId?: string;
+  maxTokens?: number;
+  timeoutMs?: number;
+};
+
 export type StructuredGenerationMeta = {
   llmStatus: 'success' | 'retry_success' | 'fallback';
   attempts: number;
@@ -23,6 +33,17 @@ export type StructuredGenerationMeta = {
 type StructuredGenerationResult<T> = {
   data: T;
   meta: StructuredGenerationMeta;
+};
+
+export type TextGenerationMeta = {
+  attempts: number;
+  model: string;
+  responseId?: string;
+};
+
+export type TextGenerationResult = {
+  content: string;
+  meta: TextGenerationMeta;
 };
 
 type ParseStructuredSuccess<T> = {
@@ -128,6 +149,40 @@ export class LlmRuntimeService {
   async generateStructured<T>(input: GenerateStructuredInput<T>): Promise<T> {
     const result = await this.generateStructuredWithMeta(input);
     return result.data;
+  }
+
+  async generateText(input: GenerateTextInput): Promise<TextGenerationResult> {
+    if (this.mode !== 'openai') {
+      throw new Error(`llm_mode_${this.mode}`);
+    }
+
+    const requestOptions = this.resolveTextRequestOptions(input);
+    if (this.shouldLogVerboseNode(input.nodeName)) {
+      this.logger.log(
+        `[${input.nodeName}] Request config provider=${requestOptions.provider} model=${requestOptions.model} logicalModel=${requestOptions.logicalModel} systemLen=${input.systemPrompt.length} userLen=${input.userPrompt.length} maxTokens=${requestOptions.maxTokens} timeoutMs=${requestOptions.timeoutMs} previousResponseId=${input.previousResponseId ?? 'none'}`,
+      );
+    }
+
+    const result = await this.callResponsesWithRetry(
+      input.nodeName,
+      input.systemPrompt,
+      input.userPrompt,
+      requestOptions,
+      input.previousResponseId
+        ? {
+            previous_response_id: input.previousResponseId,
+          }
+        : undefined,
+    );
+
+    return {
+      content: result.content,
+      meta: {
+        attempts: result.attempts,
+        model: requestOptions.model,
+        responseId: result.responseId,
+      },
+    };
   }
 
   async generateStructuredWithMeta<T>(
@@ -247,19 +302,21 @@ export class LlmRuntimeService {
     systemPrompt: string,
     userPrompt: string,
     requestOptions: ResolvedRequestOptions,
-  ): Promise<{ content: string; attempts: number }> {
+    extraBody?: Record<string, unknown>,
+  ): Promise<{ content: string; responseId?: string; attempts: number }> {
     const totalAttempts = Math.max(1, this.retryAttempts);
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
       try {
-        const content = await this.callResponses(
+        const result = await this.callResponses(
           nodeName,
           systemPrompt,
           userPrompt,
           requestOptions,
+          extraBody,
         );
-        return { content, attempts: attempt };
+        return { ...result, attempts: attempt };
       } catch (error) {
         lastError = error;
         if (!this.shouldRetryLlmError(error) || attempt >= totalAttempts) {
@@ -285,7 +342,8 @@ export class LlmRuntimeService {
     systemPrompt: string,
     userPrompt: string,
     requestOptions: ResolvedRequestOptions,
-  ): Promise<string> {
+    extraBody?: Record<string, unknown>,
+  ): Promise<{ content: string; responseId?: string }> {
     const endpoint = `${requestOptions.baseUrl}/responses`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), requestOptions.timeoutMs);
@@ -306,6 +364,7 @@ export class LlmRuntimeService {
           ],
           max_output_tokens: requestOptions.maxTokens,
           temperature: this.temperature,
+          ...(extraBody ?? {}),
         }),
       });
 
@@ -349,7 +408,10 @@ export class LlmRuntimeService {
         throw new Error('Empty LLM output.');
       }
 
-      return content;
+      return {
+        content,
+        responseId: payload.id,
+      };
     } finally {
       clearTimeout(timeout);
     }
@@ -478,6 +540,16 @@ export class LlmRuntimeService {
       logicalModel,
       input.maxTokens ?? defaultMaxTokens,
       input.timeoutMs ?? defaultTimeoutMs,
+    );
+  }
+
+  private resolveTextRequestOptions(
+    input: GenerateTextInput,
+  ): ResolvedRequestOptions {
+    return this.resolveProviderRequestOptions(
+      input.model ?? this.resolveModelForNode(input.nodeName),
+      input.maxTokens ?? this.maxTokens,
+      input.timeoutMs ?? this.timeoutMs,
     );
   }
 

@@ -16,6 +16,9 @@ import type {
 @Injectable()
 export class RequestStateService implements OnModuleDestroy {
   private readonly logger = new Logger(RequestStateService.name);
+  private readonly redisPersistenceEnabled =
+    (process.env.REQUEST_STATE_REDIS_ENABLED ?? 'true').toLowerCase() !==
+    'false';
   private readonly requests = new Map<string, RequestState>();
   private readonly requestEventStreams = new Map<
     string,
@@ -26,10 +29,15 @@ export class RequestStateService implements OnModuleDestroy {
   private readonly redisTtlSeconds = Number(
     process.env.REQUEST_STATE_TTL_SECONDS ?? 24 * 60 * 60,
   );
-  private readonly redis: Redis;
+  private readonly redis?: Redis;
   private redisAvailable = true;
 
   constructor() {
+    if (!this.redisPersistenceEnabled) {
+      this.redisAvailable = false;
+      return;
+    }
+
     const host = process.env.REDIS_HOST ?? '127.0.0.1';
     const port = Number(process.env.REDIS_PORT ?? 6379);
     const password = process.env.REDIS_PASSWORD || undefined;
@@ -48,6 +56,9 @@ export class RequestStateService implements OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.completeAllEventStreams();
+    if (!this.redis) {
+      return;
+    }
     try {
       await this.redis.quit();
     } catch {
@@ -152,6 +163,8 @@ export class RequestStateService implements OnModuleDestroy {
       timestamp: new Date().toISOString(),
       data: {
         threadId: request.threadId,
+        mode: request.mode,
+        lang: request.lang,
         query: request.query,
         timeWindow: request.timeWindow,
         preferredChain: request.preferredChain,
@@ -244,6 +257,9 @@ export class RequestStateService implements OnModuleDestroy {
   private async readFromRedis(
     requestId: string,
   ): Promise<RequestState | undefined> {
+    if (!this.redisPersistenceEnabled || !this.redis) {
+      return undefined;
+    }
     try {
       const raw = await this.redis.get(this.requestKey(requestId));
       this.markRedisRecovery();
@@ -259,6 +275,9 @@ export class RequestStateService implements OnModuleDestroy {
   }
 
   private async writeToRedis(request: RequestState): Promise<void> {
+    if (!this.redisPersistenceEnabled || !this.redis) {
+      return;
+    }
     try {
       const key = this.requestKey(request.requestId);
       const payload = JSON.stringify(request);

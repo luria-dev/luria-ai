@@ -78,7 +78,7 @@ export type IntentLlmOutput = z.infer<typeof intentLlmOutputSchema>;
 
 export const intentOutputSchema = z.object({
   userQuery: z.string().min(1),
-  language: z.enum(['zh', 'en']),
+  language: z.enum(['zh', 'en', 'cn']),
   interactionType: intentInteractionTypeSchema,
   taskType: intentTaskTypeSchema,
   outputGoal: intentOutputGoalSchema,

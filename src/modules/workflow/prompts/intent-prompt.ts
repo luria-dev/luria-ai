@@ -43,7 +43,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
   const examples = [
     {
       input: {
-        userMessage: '那 ETH 呢？',
+        userMessage: 'What about ETH then?',
         memo: {
           lastIntent: {
             taskType: 'single_asset',
@@ -64,7 +64,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
     },
     {
       input: {
-        userMessage: '分析 BTC、ETH、SOL，并分别给建议',
+        userMessage: 'Analyze BTC, ETH, and SOL, and give advice for each one separately.',
         memo: null,
       },
       output: {
@@ -78,7 +78,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
     },
     {
       input: {
-        userMessage: '对比 BTC 和 ETH 这周谁更强',
+        userMessage: 'Compare BTC and ETH and tell me which one looks stronger this week.',
         memo: null,
       },
       output: {
@@ -92,7 +92,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
     },
     {
       input: {
-        userMessage: '看看接下来走势',
+        userMessage: 'Show me the next move.',
         memo: null,
       },
       output: {

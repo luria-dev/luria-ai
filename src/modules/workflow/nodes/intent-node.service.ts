@@ -19,6 +19,7 @@ type ParseIntentInput = {
   query: string;
   timeWindow: '24h' | '7d';
   preferredChain: string | null;
+  language?: IntentOutput['language'];
   memo?: IntentMemoSnapshot | null;
 };
 
@@ -139,7 +140,9 @@ export class IntentNodeService {
     fallback: IntentLlmOutput,
   ): IntentOutput {
     const normalized = this.normalizeLlmIntentOutput(llmIntent, fallback);
-    const language = /[\u4e00-\u9fff]/.test(input.query) ? 'zh' : 'en';
+    const language =
+      input.language === 'cn' ? 'zh' :
+      input.language ?? (/[\u4e00-\u9fff]/.test(input.query) ? 'zh' : 'en');
     const entityMentions = this.resolveEntityMentions(
       normalized.targets,
       input.memo ?? null,

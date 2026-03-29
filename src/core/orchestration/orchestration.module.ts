@@ -17,6 +17,9 @@ import { WorkflowModule } from '../../modules/workflow/workflow.module';
 import { RequestStateService } from './services/request-state.service';
 import { AnalyzeQueueService } from './services/analyze-queue.service';
 import { ComparisonService } from './services/comparison.service';
+import { InstantConversationService } from './services/instant-conversation.service';
+import { InstantChatService } from './services/instant-chat.service';
+import { PriceDataService } from './services/price-data.service';
 
 @Module({
   imports: [
@@ -39,6 +42,9 @@ import { ComparisonService } from './services/comparison.service';
     RequestStateService,
     AnalyzeQueueService,
     ComparisonService,
+    InstantConversationService,
+    InstantChatService,
+    PriceDataService,
     AnalyzeOrchestratorService,
   ],
   exports: [AnalyzeOrchestratorService],

@@ -9,6 +9,10 @@ import type {
   WorkflowRunResult,
 } from '../../data/contracts/workflow-contracts';
 
+export type RequestMode = 'instant' | 'deep';
+export type RequestLang = 'cn' | 'en';
+export type OutputLanguage = 'zh' | 'en';
+
 export type RequestTarget = {
   targetKey: string;
   targetQuery: string;
@@ -22,6 +26,8 @@ export type RequestState = {
   requestId: string;
   status: 'pending' | 'waiting_selection' | 'ready' | 'failed';
   threadId: string | null;
+  mode: RequestMode;
+  lang: RequestLang;
   query: string;
   timeWindow: '24h' | '7d';
   preferredChain: string | null;
@@ -43,6 +49,8 @@ export type AnalyzeJobTarget = {
 export type AnalyzeJobData = {
   requestId: string;
   threadId: string | null;
+  mode: RequestMode;
+  lang: RequestLang;
   query: string;
   timeWindow: '24h' | '7d';
   preferredChain: string | null;
