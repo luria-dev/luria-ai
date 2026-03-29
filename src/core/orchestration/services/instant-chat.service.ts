@@ -1,8 +1,16 @@
 import { Injectable } from '@nestjs/common';
+import type {
+  AnalyzeCandidate,
+  AnalyzeIdentity,
+  PriceSnapshot,
+  TechnicalSnapshot,
+} from '../../../data/contracts/analyze-contracts';
+import { MarketService } from '../../../modules/data/market/market.service';
+import { SearcherService } from '../../../modules/data/searcher/searcher.service';
+import { TechnicalService } from '../../../modules/data/technical/technical.service';
 import { LlmRuntimeService } from '../../../modules/workflow/runtime/llm-runtime.service';
 import type { RequestLang } from '../orchestration.types';
 import { InstantConversationService } from './instant-conversation.service';
-import { PriceDataService } from './price-data.service';
 
 type InstantReplyResult = {
   body: string;
@@ -10,6 +18,10 @@ type InstantReplyResult = {
   usedPreviousResponseId: boolean;
   usedLocalFallback: boolean;
   model: string;
+};
+
+type InstantDataContext = {
+  snapshotText: string | null;
 };
 
 @Injectable()
@@ -32,7 +44,8 @@ export class InstantChatService {
     '   - Use 2-3 short paragraphs maximum',
     '   - Include specific numbers, not vague statements',
     '4. Rules:',
-    '   - Do NOT invent prices or indicators',
+    '   - Only cite prices, indicators, and levels that appear in the provided data snapshot',
+    '   - Do NOT infer RSI, moving averages, Bollinger Bands, support, or resistance from price alone',
     '   - If data is missing, say what specific data is needed',
     '   - Do NOT make guaranteed-return claims',
     '   - Keep risk notes to one sentence',
@@ -41,7 +54,9 @@ export class InstantChatService {
   constructor(
     private readonly llm: LlmRuntimeService,
     private readonly conversations: InstantConversationService,
-    private readonly priceData: PriceDataService,
+    private readonly searcher: SearcherService,
+    private readonly market: MarketService,
+    private readonly technical: TechnicalService,
   ) {}
 
   async reply(input: {
@@ -52,12 +67,15 @@ export class InstantChatService {
     lang: RequestLang;
   }): Promise<InstantReplyResult> {
     const conversation = this.conversations.get(input.threadId);
-    const priceData = await this.extractPriceData(input.message);
+    const dataContext = await this.collectDataContext(
+      input.message,
+      input.timeWindow,
+    );
     const primaryPrompt = this.buildPrimaryPrompt(
       input.message,
       input.timeWindow,
       input.lang,
-      priceData,
+      dataContext,
     );
 
     try {
@@ -96,7 +114,7 @@ export class InstantChatService {
         input.message,
         input.timeWindow,
         input.lang,
-        priceData,
+        dataContext,
       );
       const retried = await this.llm.generateText({
         nodeName: 'instant',
@@ -129,7 +147,7 @@ export class InstantChatService {
     message: string,
     timeWindow: '24h' | '7d',
     lang: RequestLang,
-    priceData: string | null,
+    dataContext: InstantDataContext,
   ): string {
     const template = this.outputTemplate(lang);
     const parts = [
@@ -137,17 +155,18 @@ export class InstantChatService {
       `Default observation window: ${timeWindow}`,
     ];
 
-    if (priceData) {
-      parts.push(`Real-time market data:\n${priceData}`);
+    if (dataContext.snapshotText) {
+      parts.push(`Verified market snapshot:\n${dataContext.snapshotText}`);
     }
 
     parts.push(
       `Output language: ${this.toLanguageInstruction(lang)}`,
       '',
-      'IMPORTANT: When you have real-time market data, you MUST:',
-      '- Include the exact price, 24h change, and key levels',
-      '- Mention support/resistance levels with specific prices',
-      '- Reference RSI or other indicators if relevant',
+      'IMPORTANT:',
+      '- Use only the verified market snapshot above',
+      '- Include exact price, 24h change, and indicators only when present in the snapshot',
+      '- If support or resistance levels are unavailable, do not invent them',
+      '- If some metrics are unavailable, simply omit them from the answer',
       '',
       'Return a compact quick-answer in Markdown using this exact structure:',
       ...template,
@@ -162,7 +181,7 @@ export class InstantChatService {
     message: string,
     timeWindow: '24h' | '7d',
     lang: RequestLang,
-    priceData: string | null,
+    dataContext: InstantDataContext,
   ): string {
     const template = this.outputTemplate(lang);
     const parts = [
@@ -173,12 +192,13 @@ export class InstantChatService {
       `Default observation window: ${timeWindow}`,
     ];
 
-    if (priceData) {
-      parts.push(`Real-time market data:\n${priceData}`);
+    if (dataContext.snapshotText) {
+      parts.push(`Verified market snapshot:\n${dataContext.snapshotText}`);
     }
 
     parts.push(
       `Output language: ${this.toLanguageInstruction(lang)}`,
+      'Use only the verified market snapshot for facts and numbers.',
       'Return a compact quick-answer in Markdown using this exact structure:',
       ...template,
       'Assume this is a fast follow-up, not a report request.',
@@ -209,18 +229,113 @@ export class InstantChatService {
     ];
   }
 
-  private async extractPriceData(message: string): Promise<string | null> {
-    const match = message.match(/\b([A-Z]{2,10})\b/);
-    if (!match) return null;
+  private async collectDataContext(
+    message: string,
+    timeWindow: '24h' | '7d',
+  ): Promise<InstantDataContext> {
+    const resolved = await this.searcher.resolve(message);
+    if (resolved.kind === 'resolved') {
+      const [market, technical] = await Promise.all([
+        this.market.fetchPrice(resolved.identity),
+        this.technical.fetchSnapshot(resolved.identity, timeWindow),
+      ]);
 
-    const symbol = match[1];
-    const data = await this.priceData.getPrice(symbol);
-    if (!data) return null;
+      return {
+        snapshotText: this.buildResolvedSnapshot(
+          resolved.identity,
+          market,
+          technical,
+          timeWindow,
+        ),
+      };
+    }
+
+    if (resolved.kind === 'ambiguous') {
+      return {
+        snapshotText: this.buildAmbiguousSnapshot(resolved.candidates),
+      };
+    }
+
+    return {
+      snapshotText: [
+        'Asset resolution: unresolved',
+        'No verified asset identity could be resolved from the user message.',
+        'Do not provide token-specific prices or indicators without clarification.',
+      ].join('\n'),
+    };
+  }
+
+  private buildResolvedSnapshot(
+    identity: AnalyzeIdentity,
+    market: PriceSnapshot,
+    technical: TechnicalSnapshot,
+    timeWindow: '24h' | '7d',
+  ): string {
+    const lines = [
+      'Asset resolution: resolved',
+      `Symbol: ${identity.symbol}`,
+      `Chain: ${identity.chain}`,
+      `Token address: ${identity.tokenAddress || 'n/a'}`,
+      `Source ID: ${identity.sourceId}`,
+      'Market snapshot:',
+      `- Price USD: ${this.formatNumber(market.priceUsd)}`,
+      `- Change 24h pct: ${this.formatSignedNumber(market.change24hPct)}`,
+      `- Change 7d pct: ${this.formatSignedNumber(market.change7dPct)}`,
+      `- Volume 24h USD: ${this.formatNumber(market.totalVolume24hUsd)}`,
+      `- Market cap USD: ${this.formatNumber(market.marketCapUsd)}`,
+      `- ATH USD: ${this.formatNumber(market.athUsd)}`,
+      `- ATL USD: ${this.formatNumber(market.atlUsd)}`,
+      `- Market as of: ${market.asOf}`,
+      `Technical snapshot (${timeWindow} view):`,
+      `- RSI14: ${this.formatNumber(technical.rsi.value)}`,
+      `- MACD: ${this.formatNumber(technical.macd.macd)}`,
+      `- MACD signal line: ${this.formatNumber(technical.macd.signalLine)}`,
+      `- MACD histogram: ${this.formatNumber(technical.macd.histogram)}`,
+      `- MA7: ${this.formatNumber(technical.ma.ma7)}`,
+      `- MA25: ${this.formatNumber(technical.ma.ma25)}`,
+      `- MA99: ${this.formatNumber(technical.ma.ma99)}`,
+      `- Bollinger upper: ${this.formatNumber(technical.boll.upper)}`,
+      `- Bollinger middle: ${this.formatNumber(technical.boll.middle)}`,
+      `- Bollinger lower: ${this.formatNumber(technical.boll.lower)}`,
+      `- Swing high: ${this.formatNumber(technical.swingHigh)}`,
+      `- Swing low: ${this.formatNumber(technical.swingLow)}`,
+      `- Technical summary signal: ${technical.summarySignal}`,
+      `- Technical as of: ${technical.asOf}`,
+      'Support/resistance guidance:',
+      '- Prefer Bollinger, MA, swing high, and swing low as candidate levels only when numeric values exist.',
+    ];
+
+    return lines.join('\n');
+  }
+
+  private buildAmbiguousSnapshot(candidates: AnalyzeCandidate[]): string {
+    const options = candidates
+      .slice(0, 5)
+      .map(
+        (candidate, index) =>
+          `${index + 1}. ${candidate.symbol} | ${candidate.tokenName} | ${candidate.chain} | ${candidate.tokenAddress}`,
+      );
 
     return [
-      `${data.symbol}: $${data.price.toLocaleString()}`,
-      `24h Change: ${data.change24h > 0 ? '+' : ''}${data.change24h.toFixed(2)}%`,
-      `24h Range: $${data.low24h.toLocaleString()} - $${data.high24h.toLocaleString()}`,
+      'Asset resolution: ambiguous',
+      'Multiple candidate assets matched the user message.',
+      'Ask the user to specify the exact symbol or chain before giving token-specific numbers.',
+      'Candidates:',
+      ...options,
     ].join('\n');
+  }
+
+  private formatNumber(value: number | null | undefined): string {
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      return 'unavailable';
+    }
+    return String(value);
+  }
+
+  private formatSignedNumber(value: number | null | undefined): string {
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      return 'unavailable';
+    }
+    return `${value > 0 ? '+' : ''}${value}`;
   }
 }

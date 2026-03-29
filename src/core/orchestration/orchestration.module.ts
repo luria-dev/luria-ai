@@ -19,7 +19,6 @@ import { AnalyzeQueueService } from './services/analyze-queue.service';
 import { ComparisonService } from './services/comparison.service';
 import { InstantConversationService } from './services/instant-conversation.service';
 import { InstantChatService } from './services/instant-chat.service';
-import { PriceDataService } from './services/price-data.service';
 
 @Module({
   imports: [
@@ -44,7 +43,6 @@ import { PriceDataService } from './services/price-data.service';
     ComparisonService,
     InstantConversationService,
     InstantChatService,
-    PriceDataService,
     AnalyzeOrchestratorService,
   ],
   exports: [AnalyzeOrchestratorService],

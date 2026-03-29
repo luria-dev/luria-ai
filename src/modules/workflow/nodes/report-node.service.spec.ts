@@ -275,7 +275,10 @@ describe('ReportNodeService', () => {
     expect(result.body).toContain('BTC 分析报告');
     expect(result.body).toContain('## 核心结论');
     expect(result.body).toContain('69175.00');
-    expect(result.body).toContain('Core evidence is incomplete');
+    expect(result.body).not.toContain('Core evidence is incomplete');
+    expect(result.body).not.toContain('degraded');
+    expect(result.body).not.toContain('数据不足');
+    expect(result.reportMeta?.dataQualityNotes ?? []).toEqual([]);
     expect(result.body.length).toBeGreaterThan(200);
   });
 

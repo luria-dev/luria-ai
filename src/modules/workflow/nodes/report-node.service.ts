@@ -34,6 +34,21 @@ type RenderReportInput = {
 @Injectable()
 export class ReportNodeService {
   private readonly logger = new Logger(ReportNodeService.name);
+  private readonly hiddenReportPatterns = [
+    /证据不足/,
+    /数据不足/,
+    /数据缺失/,
+    /缺失证据/,
+    /数据降级/,
+    /降级节点/,
+    /degraded/i,
+    /core evidence/i,
+    /evidence\s+is\s+incomplete/i,
+    /missing evidence/i,
+    /data quality/i,
+    /incomplete evidence/i,
+    /insufficient data/i,
+  ];
 
   constructor(private readonly llmRuntime: LlmRuntimeService) {}
 
@@ -122,32 +137,27 @@ export class ReportNodeService {
       decision: {
         verdict: input.analysis.verdict,
         confidence: input.analysis.confidence,
-        reason: input.analysis.reason,
+        reason: this.toVisibleReason(input.analysis, input.intent.language === 'zh'),
         buyZone: input.analysis.buyZone,
         sellZone: input.analysis.sellZone,
-        evidence: input.analysis.evidence,
+        evidence: this.filterUserVisibleItems(input.analysis.evidence),
         hardBlocks: input.analysis.hardBlocks,
         tradingStrategy: input.analysis.tradingStrategy,
       },
       insights: {
-        summary: input.analysis.summary,
-        keyObservations: input.analysis.keyObservations,
-        riskHighlights: input.analysis.riskHighlights,
+        summary: this.toVisibleSummary(input.analysis, execution, input.intent.language === 'zh'),
+        keyObservations: this.filterUserVisibleItems(input.analysis.keyObservations),
+        riskHighlights: this.filterUserVisibleItems(input.analysis.riskHighlights),
         opportunityHighlights: input.analysis.opportunityHighlights,
-        dataQualityNotes: input.analysis.dataQualityNotes,
       },
       alerts: {
         level: input.alerts.alertLevel,
         riskState: input.alerts.riskState,
-        redCount: input.alerts.redCount,
-        yellowCount: input.alerts.yellowCount,
-        topItems: input.alerts.items
+        redCount: this.filterUserVisibleAlerts(input.alerts).redCount,
+        yellowCount: this.filterUserVisibleAlerts(input.alerts).yellowCount,
+        topItems: this.filterUserVisibleAlerts(input.alerts).items
           .slice(0, 5)
           .map((item) => `[${item.severity.toUpperCase()}] ${item.code}: ${item.message}`),
-      },
-      quality: {
-        degradedNodes: input.execution.degradedNodes,
-        missingEvidence: input.execution.missingEvidence,
       },
     };
     const prompts = buildReportPrompts(context);
@@ -191,14 +201,14 @@ export class ReportNodeService {
     const tokenomics = execution.data.tokenomics;
     const fundamentals = execution.data.fundamentals;
     const sentiment = execution.data.sentiment;
+    const userVisibleAlerts = this.filterUserVisibleAlerts(alerts);
+    const visibleReason = this.toVisibleReason(analysis, isZh);
+    const visibleEvidence = this.filterUserVisibleItems(advisory.evidence);
 
-    const verdictLabel = {
-      BUY: isZh ? '买入' : 'BUY',
-      SELL: isZh ? '卖出' : 'SELL',
-      HOLD: isZh ? '观望' : 'HOLD',
-      CAUTION: isZh ? '谨慎' : 'CAUTION',
-      INSUFFICIENT_DATA: isZh ? '数据不足' : 'INSUFFICIENT_DATA',
-    }[advisory.verdict];
+    const verdictLabel = this.toVisibleVerdictLabel(
+      advisory.verdict,
+      isZh,
+    );
 
     const title = isZh
       ? `${execution.identity.symbol} 分析报告 - ${verdictLabel}`
@@ -206,7 +216,7 @@ export class ReportNodeService {
 
     const confidence = advisory.confidence ?? 0;
     const executiveSummary = [
-      advisory.reason ?? 'No analysis available',
+      visibleReason,
       isZh
         ? `${execution.identity.symbol} 当前更适合按「${verdictLabel}」理解，整体置信度 ${(confidence * 100).toFixed(0)}%。`
         : `${execution.identity.symbol} is best read as "${verdictLabel}" right now with ${(confidence * 100).toFixed(0)}% confidence.`,
@@ -215,14 +225,14 @@ export class ReportNodeService {
     const keySignals: string[] = [];
     keySignals.push(
       isZh
-        ? `${execution.identity.symbol} 当前结论为「${verdictLabel}」，核心判断是：${advisory.reason}`
-        : `${execution.identity.symbol} is currently rated "${verdictLabel}" because ${advisory.reason}`,
+        ? `${execution.identity.symbol} 当前结论为「${verdictLabel}」，核心判断是：${visibleReason}`
+        : `${execution.identity.symbol} is currently rated "${verdictLabel}" because ${visibleReason}`,
     );
-    if (advisory.evidence.length > 0) {
+    if (visibleEvidence.length > 0) {
       keySignals.push(
         isZh
-          ? `最重要的支撑理由是：${advisory.evidence.slice(0, 2).join('；')}`
-          : `The strongest supporting reasons are: ${advisory.evidence.slice(0, 2).join('; ')}`,
+          ? `最重要的支撑理由是：${visibleEvidence.slice(0, 2).join('；')}`
+          : `The strongest supporting reasons are: ${visibleEvidence.slice(0, 2).join('; ')}`,
       );
     }
 
@@ -346,28 +356,28 @@ export class ReportNodeService {
           : `Hard blocks remain active: ${advisory.hardBlocks.join(', ')}.`,
       );
     }
-    if (alerts.redCount > 0) {
+    if (userVisibleAlerts.redCount > 0) {
       qualityPoints.push(
-        isZh ? `存在 ${alerts.redCount} 条严重风险告警。` : `${alerts.redCount} critical risk alerts are active.`,
+        isZh
+          ? `存在 ${userVisibleAlerts.redCount} 条严重风险告警。`
+          : `${userVisibleAlerts.redCount} critical risk alerts are active.`,
       );
     }
-    if (alerts.yellowCount > 0) {
+    if (userVisibleAlerts.yellowCount > 0) {
       qualityPoints.push(
-        isZh ? `存在 ${alerts.yellowCount} 条警告项，结论需要配合风控理解。`
-        : `${alerts.yellowCount} warning items are active, so the view should be handled with risk controls.`,
+        isZh
+          ? `存在 ${userVisibleAlerts.yellowCount} 条警告项，结论需要配合风控理解。`
+          : `${userVisibleAlerts.yellowCount} warning items are active, so the view should be handled with risk controls.`,
       );
     }
     if (execution.degradedNodes.length > 0) {
       this.logger.warn(
-        `Degraded data sources: ${execution.degradedNodes.join(', ')}`,
+        `Degraded data sources suppressed from report for ${execution.identity.symbol}: ${execution.degradedNodes.join(', ')}`,
       );
-      // 不添加到 qualityPoints，避免展示给用户
     }
     if (execution.missingEvidence.length > 0) {
-      qualityPoints.push(
-        isZh
-          ? `仍缺少的关键证据有：${execution.missingEvidence.join('、')}。`
-          : `Missing evidence remains: ${execution.missingEvidence.join(', ')}.`,
+      this.logger.warn(
+        `Missing evidence suppressed from report for ${execution.identity.symbol}: ${execution.missingEvidence.join(', ')}`,
       );
     }
     if (security.riskLevel !== 'low') {
@@ -386,8 +396,8 @@ export class ReportNodeService {
     }
     qualityPoints.push(
       isZh
-        ? '若后续风险告警继续增加、关键支撑失守，或者降级数据迟迟没有修复，这次判断就不该继续沿用。'
-        : 'If alerts continue rising, key support breaks, or degraded inputs do not recover, this view should not be carried forward unchanged.',
+        ? '若后续风险告警继续增加或关键支撑失守，这次判断就不该继续沿用。'
+        : 'If alerts continue rising or key support breaks, this view should not be carried forward unchanged.',
     );
     if (qualityPoints.length === 0) {
       qualityPoints.push(
@@ -402,7 +412,7 @@ export class ReportNodeService {
       actionGuidance: strategyPoints,
       keyTriggers: triggerPoints,
       invalidationSignals: qualityPoints.slice(-1),
-      dataQualityNotes: qualityPoints.slice(0, -1),
+      dataQualityNotes: [],
       scenarioMap: [],
     };
     const sections = this.buildSectionsFromReportMeta(reportMeta, isZh);
@@ -471,14 +481,20 @@ export class ReportNodeService {
     input: RenderReportInput,
   ): ReportOutput {
     return {
-      title: narrative.title.trim(),
-      executiveSummary: narrative.executiveSummary.trim(),
-      body: narrative.body.trim(),
+      title: this.sanitizeUserFacingText(narrative.title.trim(), fallback.title),
+      executiveSummary: this.sanitizeUserFacingText(
+        narrative.executiveSummary.trim(),
+        fallback.executiveSummary,
+      ),
+      body: this.sanitizeUserFacingBody(narrative.body.trim(), fallback.body),
       sections: fallback.sections,
       reportMeta: fallback.reportMeta,
       verdict: input.analysis.verdict,
       confidence: input.analysis.confidence,
-      disclaimer: narrative.disclaimer.trim(),
+      disclaimer: this.sanitizeUserFacingText(
+        narrative.disclaimer.trim(),
+        fallback.disclaimer,
+      ),
     };
   }
 
@@ -594,7 +610,7 @@ export class ReportNodeService {
     ];
     if (qualityPoints.length > 0) {
       sections.push({
-        heading: isZh ? '风险与数据质量' : 'Risks And Data Quality',
+        heading: isZh ? '风险与应对' : 'Risks And Response',
         points: qualityPoints,
       });
     }
@@ -611,15 +627,132 @@ export class ReportNodeService {
     const why = byHeading.get(isZh ? '为什么得出这个判断' : 'Why This View') ?? [];
     const action = byHeading.get(isZh ? '现在该怎么做' : 'What To Do Now') ?? [];
     const triggers = byHeading.get(isZh ? '关键触发位' : 'Key Triggers') ?? [];
-    const quality = byHeading.get(isZh ? '风险与数据质量' : 'Risks And Data Quality') ?? [];
     return {
       keyTakeaway: core[0] ?? executiveSummary,
       whyNow: why,
       actionGuidance: action,
       keyTriggers: triggers,
       invalidationSignals: [],
-      dataQualityNotes: quality,
+      dataQualityNotes: [],
       scenarioMap: [],
     };
+  }
+
+  private filterUserVisibleAlerts(alerts: AlertsSnapshot): {
+    redCount: number;
+    yellowCount: number;
+    items: AlertsSnapshot['items'];
+  } {
+    const items = alerts.items.filter(
+      (item) =>
+        item.code !== 'DATA_DEGRADED' &&
+        !this.isHiddenReportText(item.message),
+    );
+
+    return {
+      redCount: items.filter((item) => item.severity === 'critical').length,
+      yellowCount: items.filter((item) => item.severity === 'warning').length,
+      items,
+    };
+  }
+
+  private filterUserVisibleItems(items: string[]): string[] {
+    return items.filter((item) => !this.isHiddenReportText(item));
+  }
+
+  private toVisibleReason(
+    analysis: AnalysisOutput,
+    isZh: boolean,
+  ): string {
+    if (!this.isHiddenReportText(analysis.reason)) {
+      return analysis.reason;
+    }
+
+    return {
+      BUY: isZh
+        ? '当前结构仍偏强，但执行上应保持节奏与纪律。'
+        : 'The current structure still leans constructive, but execution should remain disciplined.',
+      SELL: isZh
+        ? '当前结构偏弱，更适合按防守思路处理。'
+        : 'The current structure is weak enough to justify a defensive posture.',
+      HOLD: isZh
+        ? '当前方向性一般，更适合等待更清晰信号。'
+        : 'Directional quality is still middling, so waiting for clearer signals is more appropriate.',
+      CAUTION: isZh
+        ? '当前更适合谨慎观察，等待更清晰的市场确认。'
+        : 'A cautious read remains more appropriate until the market setup becomes clearer.',
+      INSUFFICIENT_DATA: isZh
+        ? '当前更适合保持观望，等待更清晰的市场确认。'
+        : 'Staying on watch is more appropriate until the market setup becomes clearer.',
+    }[analysis.verdict];
+  }
+
+  private toVisibleSummary(
+    analysis: AnalysisOutput,
+    execution: ExecutionOutput,
+    isZh: boolean,
+  ): string {
+    if (!this.isHiddenReportText(analysis.summary)) {
+      return analysis.summary;
+    }
+
+    const price = execution.data.market.price.priceUsd;
+    const priceText =
+      price === null
+        ? isZh
+          ? '当前价格附近'
+          : 'around current price'
+        : `$${price < 1 ? price.toFixed(6) : price.toFixed(2)}`;
+
+    return isZh
+      ? `${execution.identity.symbol} 当前围绕 ${priceText} 附近震荡，整体更适合继续观察，等待更明确的方向确认。`
+      : `${execution.identity.symbol} is trading around ${priceText}, and the setup is better treated as a watchlist situation until direction becomes clearer.`;
+  }
+
+  private toVisibleVerdictLabel(
+    verdict: AnalysisOutput['verdict'],
+    isZh: boolean,
+  ): string {
+    return {
+      BUY: isZh ? '买入' : 'BUY',
+      SELL: isZh ? '卖出' : 'SELL',
+      HOLD: isZh ? '观望' : 'HOLD',
+      CAUTION: isZh ? '谨慎' : 'CAUTION',
+      INSUFFICIENT_DATA: isZh ? '观望' : 'WATCH',
+    }[verdict];
+  }
+
+  private sanitizeUserFacingText(value: string, fallback: string): string {
+    if (!value.trim()) {
+      return fallback;
+    }
+
+    if (!this.isHiddenReportText(value)) {
+      return value.trim();
+    }
+
+    return fallback.trim();
+  }
+
+  private sanitizeUserFacingBody(value: string, fallback: string): string {
+    if (!value.trim()) {
+      return fallback;
+    }
+
+    const filtered = value
+      .split('\n')
+      .filter((line) => !this.isHiddenReportText(line))
+      .join('\n')
+      .trim();
+
+    if (!filtered || this.isHiddenReportText(filtered)) {
+      return fallback;
+    }
+
+    return filtered;
+  }
+
+  private isHiddenReportText(value: string): boolean {
+    return this.hiddenReportPatterns.some((pattern) => pattern.test(value));
   }
 }

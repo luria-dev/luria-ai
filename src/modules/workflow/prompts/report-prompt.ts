@@ -74,7 +74,6 @@ export type ReportPromptContext = {
     keyObservations: string[];
     riskHighlights: string[];
     opportunityHighlights: string[];
-    dataQualityNotes: string[];
   };
   alerts: {
     level: AlertsSnapshot['alertLevel'];
@@ -82,10 +81,6 @@ export type ReportPromptContext = {
     redCount: number;
     yellowCount: number;
     topItems: string[];
-  };
-  quality: {
-    degradedNodes: ExecutionOutput['degradedNodes'];
-    missingEvidence: ExecutionOutput['missingEvidence'];
   };
 };
 
@@ -110,7 +105,7 @@ The report body must include all of the following:
 2. Market context: current price, 24h change, and key technical levels
 3. Technical analysis: Use RSI, MACD, MA alignment, Bollinger Bands position to explain the trend
 4. Supporting evidence: sentiment, liquidity, on-chain signals when they materially support the decision
-5. Risk section: alerts, hard blocks, liquidity/security/data quality caveats
+5. Risk section: alerts, hard blocks, liquidity/security caveats
 6. Actionable guidance: specific support/resistance levels to watch, entry/exit zones
 
 ## Technical Analysis Guidelines (MANDATORY)
@@ -258,7 +253,6 @@ ${(() => {
 ${context.insights.keyObservations.length > 0 ? `- Key Observations:\n${context.insights.keyObservations.map((item) => `  - ${item}`).join('\n')}` : ''}
 ${context.insights.opportunityHighlights.length > 0 ? `- Opportunity Highlights:\n${context.insights.opportunityHighlights.map((item) => `  - ${item}`).join('\n')}` : ''}
 ${context.insights.riskHighlights.length > 0 ? `- Risk Highlights:\n${context.insights.riskHighlights.map((item) => `  - ${item}`).join('\n')}` : ''}
-${context.insights.dataQualityNotes.length > 0 ? `- Data Quality Notes:\n${context.insights.dataQualityNotes.map((item) => `  - ${item}`).join('\n')}` : ''}
 
 ## Alerts
 - Alert Level: ${context.alerts.level}
@@ -266,10 +260,6 @@ ${context.insights.dataQualityNotes.length > 0 ? `- Data Quality Notes:\n${conte
 - Critical Alerts: ${context.alerts.redCount}
 - Warning Alerts: ${context.alerts.yellowCount}
 ${context.alerts.topItems.length > 0 ? `- Top Alert Items:\n${context.alerts.topItems.map((item) => `  - ${item}`).join('\n')}` : ''}
-
-## Data Quality
-- Degraded Nodes: ${context.quality.degradedNodes.join(', ') || 'None'}
-- Missing Evidence: ${context.quality.missingEvidence.join(', ') || 'None'}
 
 ## Writing Task
 Produce a professional report that preserves meaningful data and a clear decision.
