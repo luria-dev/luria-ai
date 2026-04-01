@@ -55,7 +55,7 @@ export class OnchainService {
 
   async fetchCexNetflow(
     identity: AnalyzeIdentity,
-    window: '24h' | '7d',
+    window: '24h' | '7d' | '30d',
   ): Promise<CexNetflowSnapshot> {
     const result = await this.fetchFromSantiment(identity, window);
     if (result) {
@@ -78,7 +78,7 @@ export class OnchainService {
 
   private async fetchFromSantiment(
     identity: AnalyzeIdentity,
-    window: '24h' | '7d',
+    window: '24h' | '7d' | '30d',
   ): Promise<CexNetflowSnapshot | null> {
     const apiKey = process.env.SANTIMENT_ACCESS_KEY;
     if (!apiKey?.trim()) {
@@ -120,20 +120,31 @@ export class OnchainService {
     return null;
   }
 
-  private buildPrimaryWindow(window: '24h' | '7d'): SantimentWindow {
-    return window === '24h'
-      ? {
-          from: 'utc_now-24h',
-          to: 'utc_now',
-          interval: '6h',
-          degraded: false,
-        }
-      : {
-          from: 'utc_now-7d',
-          to: 'utc_now',
-          interval: '12h',
-          degraded: false,
-        };
+  private buildPrimaryWindow(window: '24h' | '7d' | '30d'): SantimentWindow {
+    if (window === '24h') {
+      return {
+        from: 'utc_now-24h',
+        to: 'utc_now',
+        interval: '6h',
+        degraded: false,
+      };
+    }
+
+    if (window === '7d') {
+      return {
+        from: 'utc_now-7d',
+        to: 'utc_now',
+        interval: '12h',
+        degraded: false,
+      };
+    }
+
+    return {
+      from: 'utc_now-30d',
+      to: 'utc_now',
+      interval: '1d',
+      degraded: false,
+    };
   }
 
   private buildHistoricalFallbackWindow(): SantimentWindow {
@@ -226,7 +237,7 @@ export class OnchainService {
   }
 
   private toSnapshot(
-    window: '24h' | '7d',
+    window: '24h' | '7d' | '30d',
     data: {
       inflowUsd: number | null;
       outflowUsd: number | null;

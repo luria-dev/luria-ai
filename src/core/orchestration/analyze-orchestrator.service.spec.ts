@@ -332,6 +332,9 @@ describe('AnalyzeOrchestratorService', () => {
       buildComparisonReportWithMeta: jest.fn(),
       buildMultiTargetBundleReport: jest.fn(),
     };
+    const instantChat = {
+      reply: jest.fn(),
+    };
     const getStatus = (module: string) =>
       jest.fn(() => ({ module, state: 'ready' }));
 
@@ -354,6 +357,7 @@ describe('AnalyzeOrchestratorService', () => {
       requestState as any,
       analyzeQueue as any,
       comparison as any,
+      instantChat as any,
     );
 
     return {
@@ -364,6 +368,7 @@ describe('AnalyzeOrchestratorService', () => {
       requestState,
       analyzeQueue,
       comparison,
+      instantChat,
     };
   }
 
@@ -373,7 +378,14 @@ describe('AnalyzeOrchestratorService', () => {
       .spyOn(service as any, 'enqueueAnalyzeJob')
       .mockResolvedValue('inline_fallback');
 
-    const response = await service.bootstrap('ETH', '24h', null, 'thread-1');
+    const response = await service.bootstrap(
+      'ETH',
+      'deep',
+      'en',
+      '24h',
+      null,
+      'thread-1',
+    );
 
     expect(response).toEqual(
       expect.objectContaining({
@@ -400,10 +412,28 @@ describe('AnalyzeOrchestratorService', () => {
       expect.objectContaining({
         requestId: expect.any(String),
         threadId: 'thread-1',
+        mode: 'deep',
+        lang: 'en',
         query: 'ETH',
         timeWindow: '24h',
         preferredChain: null,
         targets: [],
+      }),
+    );
+  });
+
+  it('bootstrap should default to 30d when timeWindow is omitted', async () => {
+    const { service } = createService();
+    const enqueueSpy = jest
+      .spyOn(service as any, 'enqueueAnalyzeJob')
+      .mockResolvedValue('inline_fallback');
+
+    await service.bootstrap('ETH', 'deep', 'en');
+
+    expect(enqueueSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'ETH',
+        timeWindow: '30d',
       }),
     );
   });
@@ -424,6 +454,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     const response = await service.analyzeMessage({
       message: '分析 BTC 接下来24小时走势',
+      mode: 'deep',
+      lang: 'cn',
       requestId: null,
       threadId: 'thread-1',
       timeWindow: '24h',
@@ -432,6 +464,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     expect(bootstrapSpy).toHaveBeenCalledWith(
       '分析 BTC 接下来24小时走势',
+      'deep',
+      'cn',
       '24h',
       null,
       'thread-1',
@@ -460,6 +494,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     const response = await service.analyzeMessage({
       message: '分析 BTC',
+      mode: 'deep',
+      lang: 'cn',
       requestId: null,
       threadId: null,
       timeWindow: '24h',
@@ -468,6 +504,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     expect(bootstrapSpy).toHaveBeenCalledWith(
       '分析 BTC',
+      'deep',
+      'cn',
       '24h',
       null,
       expect.any(String),
@@ -489,6 +527,7 @@ describe('AnalyzeOrchestratorService', () => {
       requestId: 'req-select',
       status: 'waiting_selection',
       threadId: 'thread-1',
+      lang: 'cn',
       query: '分析 polygon',
       timeWindow: '24h',
       preferredChain: null,
@@ -546,6 +585,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     const response = await service.analyzeMessage({
       message: '选 MATIC',
+      mode: 'deep',
+      lang: 'cn',
       requestId: 'req-select',
       threadId: 'thread-1',
       timeWindow: '24h',
@@ -654,6 +695,7 @@ describe('AnalyzeOrchestratorService', () => {
       requestId: 'req-select',
       status: 'waiting_selection',
       threadId: 'thread-1',
+      lang: 'cn',
       query: '分析 polygon',
       timeWindow: '7d',
       preferredChain: 'polygon',
@@ -692,6 +734,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     const response = await service.analyzeMessage({
       message: '那改成分析 ETH 吧',
+      mode: 'deep',
+      lang: 'cn',
       requestId: 'req-select',
       threadId: 'thread-1',
       timeWindow: '24h',
@@ -700,6 +744,8 @@ describe('AnalyzeOrchestratorService', () => {
 
     expect(bootstrapSpy).toHaveBeenCalledWith(
       '那改成分析 ETH 吧',
+      'deep',
+      'cn',
       '7d',
       'polygon',
       'thread-1',

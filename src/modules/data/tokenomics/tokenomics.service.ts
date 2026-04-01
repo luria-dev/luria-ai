@@ -50,11 +50,17 @@ export class TokenomicsService {
       tokenomistAllocation,
       tokenomistVesting,
       tokenomistInflation,
+      tokenomistBurns,
+      tokenomistBuybacks,
+      tokenomistFundraising,
       rootdata,
     ] = await Promise.all([
       this.fetchAllocation(identity, tokenomistMeta),
       this.fetchUnlockSchedule(identity, tokenomistMeta),
       this.fetchInflation(identity, tokenomistMeta),
+      this.fetchBurns(identity, tokenomistMeta),
+      this.fetchBuybacks(identity, tokenomistMeta),
+      this.fetchFundraising(identity, tokenomistMeta),
       this.fetchRootDataTokenomics(identity),
     ]);
 
@@ -147,6 +153,42 @@ export class TokenomicsService {
       });
     }
 
+    if (tokenomistBurns.totalBurnAmount !== null) {
+      if (!sourceUsed.includes('tokenomist')) {
+        sourceUsed.push('tokenomist');
+      }
+      evidence.push({
+        field: 'burns',
+        sourceName: 'tokenomist',
+        sourceUrl: this.getTokenomistBurnUrl(),
+        extractedAt: nowIso,
+      });
+    }
+
+    if (tokenomistBuybacks.totalBuybackAmount !== null) {
+      if (!sourceUsed.includes('tokenomist')) {
+        sourceUsed.push('tokenomist');
+      }
+      evidence.push({
+        field: 'buybacks',
+        sourceName: 'tokenomist',
+        sourceUrl: this.getTokenomistBuybackUrl(),
+        extractedAt: nowIso,
+      });
+    }
+
+    if (tokenomistFundraising.totalRaised !== null) {
+      if (!sourceUsed.includes('tokenomist')) {
+        sourceUsed.push('tokenomist');
+      }
+      evidence.push({
+        field: 'fundraising',
+        sourceName: 'tokenomist',
+        sourceUrl: this.getTokenomistFundraisingUrl(),
+        extractedAt: nowIso,
+      });
+    }
+
     const tokenomicsEvidenceInsufficient =
       sourceUsed.length === 0 ||
       (allocation.teamPct === null &&
@@ -161,6 +203,9 @@ export class TokenomicsService {
       allocation,
       vestingSchedule,
       inflationRate,
+      burns: tokenomistBurns,
+      buybacks: tokenomistBuybacks,
+      fundraising: tokenomistFundraising,
       evidence,
       evidenceConflicts: [],
       asOf: nowIso,
@@ -349,6 +394,222 @@ export class TokenomicsService {
       targetAnnualPct,
       isDynamic: this.toBool(isDynamicRaw) ?? false,
     };
+  }
+
+  private async fetchBurns(
+    identity: AnalyzeIdentity,
+    meta: TokenomistTokenMeta | null,
+  ): Promise<{
+    totalBurnAmount: number | null;
+    recentBurns: Array<{
+      burnEventLabel: string;
+      burnType: string;
+      burnDate: string;
+      amount: number;
+      metadata: { burners: string[]; burnReasons: string[] };
+    }>;
+  }> {
+    const fallback = { totalBurnAmount: null, recentBurns: [] };
+
+    const tokenId = meta?.tokenId;
+    if (!tokenId) {
+      return fallback;
+    }
+
+    const apiKey = this.getTokenomistApiKey();
+    if (!apiKey) {
+      return fallback;
+    }
+
+    const timeoutMs = Number(process.env.TOKENOMIST_TIMEOUT_MS ?? 5000);
+    const url = `${this.getTokenomistBurnUrl()}/${tokenId}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'x-api-key': apiKey,
+        },
+      });
+      if (!response.ok) {
+        return fallback;
+      }
+
+      const payload = (await response.json()) as unknown;
+      const obj = this.extractTokenomistNode(payload);
+      const totalBurnAmount = this.toNumber(obj.totalBurnAmount);
+      const burnsArray = Array.isArray(obj.burns) ? obj.burns : [];
+      const recentBurns = burnsArray
+        .slice(0, 10)
+        .map((burn: any) => ({
+          burnEventLabel: this.toString(burn.burnEventLabel) ?? '',
+          burnType: this.toString(burn.burnType) ?? '',
+          burnDate: this.toDateString(burn.burnDate) ?? '',
+          amount: this.toNumber(burn.amount) ?? 0,
+          metadata: {
+            burners: Array.isArray(burn.metadata?.burners) ? burn.metadata.burners : [],
+            burnReasons: Array.isArray(burn.metadata?.burnReasons) ? burn.metadata.burnReasons : [],
+          },
+        }))
+        .filter((burn: any) => burn.burnDate && burn.amount > 0);
+
+      return { totalBurnAmount, recentBurns };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug(
+        `Tokenomist burns unavailable for ${identity.symbol}: ${message}`,
+      );
+      return fallback;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async fetchBuybacks(
+    identity: AnalyzeIdentity,
+    meta: TokenomistTokenMeta | null,
+  ): Promise<{
+    totalBuybackAmount: number | null;
+    recentBuybacks: Array<{
+      buybackEventLabel: string;
+      buybackType: string;
+      buybackDate: string;
+      tokenAmount: number;
+      value: number;
+      spentAmount: number;
+      spentUnit: string;
+    }>;
+  }> {
+    const fallback = { totalBuybackAmount: null, recentBuybacks: [] };
+
+    const tokenId = meta?.tokenId;
+    if (!tokenId) {
+      return fallback;
+    }
+
+    const apiKey = this.getTokenomistApiKey();
+    if (!apiKey) {
+      return fallback;
+    }
+
+    const timeoutMs = Number(process.env.TOKENOMIST_TIMEOUT_MS ?? 5000);
+    const url = `${this.getTokenomistBuybackUrl()}/${tokenId}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'x-api-key': apiKey,
+        },
+      });
+      if (!response.ok) {
+        return fallback;
+      }
+
+      const payload = (await response.json()) as unknown;
+      const obj = this.extractTokenomistNode(payload);
+      const totalBuybackAmount = this.toNumber(obj.totalBuybackAmount);
+      const buybacksArray = Array.isArray(obj.buybacks) ? obj.buybacks : [];
+      const recentBuybacks = buybacksArray
+        .slice(0, 10)
+        .map((buyback: any) => ({
+          buybackEventLabel: this.toString(buyback.buybackEventLabel) ?? '',
+          buybackType: this.toString(buyback.buybackType) ?? '',
+          buybackDate: this.toDateString(buyback.buybackDate) ?? '',
+          tokenAmount: this.toNumber(buyback.tokenAmount) ?? 0,
+          value: this.toNumber(buyback.value) ?? 0,
+          spentAmount: this.toNumber(buyback.spentAmount) ?? 0,
+          spentUnit: this.toString(buyback.spentUnit) ?? '',
+        }))
+        .filter((buyback: any) => buyback.buybackDate && buyback.tokenAmount > 0);
+
+      return { totalBuybackAmount, recentBuybacks };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug(
+        `Tokenomist buybacks unavailable for ${identity.symbol}: ${message}`,
+      );
+      return fallback;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async fetchFundraising(
+    identity: AnalyzeIdentity,
+    meta: TokenomistTokenMeta | null,
+  ): Promise<{
+    totalRaised: number | null;
+    rounds: Array<{
+      roundName: string;
+      fundingDate: string;
+      amountRaised: number;
+      currency: string;
+      valuation: number | null;
+      investors: string[];
+    }>;
+  }> {
+    const fallback = { totalRaised: null, rounds: [] };
+
+    const tokenId = meta?.tokenId;
+    if (!tokenId) {
+      return fallback;
+    }
+
+    const apiKey = this.getTokenomistApiKey();
+    if (!apiKey) {
+      return fallback;
+    }
+
+    const timeoutMs = Number(process.env.TOKENOMIST_TIMEOUT_MS ?? 5000);
+    const url = `${this.getTokenomistFundraisingUrl()}/${tokenId}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'x-api-key': apiKey,
+        },
+      });
+      if (!response.ok) {
+        return fallback;
+      }
+
+      const payload = (await response.json()) as unknown;
+      const obj = this.extractTokenomistNode(payload);
+      const totalRaised = this.toNumber(obj.totalRaised ?? obj.totalFundingAmount);
+      const roundsArray = Array.isArray(obj.rounds) ? obj.rounds : Array.isArray(obj.fundraisingRounds) ? obj.fundraisingRounds : [];
+      const rounds = roundsArray
+        .slice(0, 10)
+        .map((round: any) => ({
+          roundName: this.toString(round.roundName ?? round.round) ?? '',
+          fundingDate: this.toDateString(round.fundingDate ?? round.date) ?? '',
+          amountRaised: this.toNumber(round.amountRaised ?? round.amount) ?? 0,
+          currency: this.toString(round.currency ?? round.unit) ?? 'USD',
+          valuation: this.toNumber(round.valuation),
+          investors: Array.isArray(round.investors) ? round.investors.map((inv: any) => this.toString(inv) ?? '').filter(Boolean) : [],
+        }))
+        .filter((round: any) => round.fundingDate && round.amountRaised > 0);
+
+      return { totalRaised, rounds };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug(
+        `Tokenomist fundraising unavailable for ${identity.symbol}: ${message}`,
+      );
+      return fallback;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async fetchRootDataTokenomics(
@@ -659,6 +920,27 @@ export class TokenomicsService {
     return (
       process.env.TOKENOMIST_TOKEN_LIST_URL?.trim() ||
       'https://api.tokenomist.ai/v4/token/list'
+    );
+  }
+
+  private getTokenomistBurnUrl(): string {
+    return (
+      process.env.TOKENOMIST_BURN_URL?.trim() ||
+      'https://api.tokenomist.ai/v1/burn'
+    );
+  }
+
+  private getTokenomistBuybackUrl(): string {
+    return (
+      process.env.TOKENOMIST_BUYBACK_URL?.trim() ||
+      'https://api.tokenomist.ai/v1/buyback'
+    );
+  }
+
+  private getTokenomistFundraisingUrl(): string {
+    return (
+      process.env.TOKENOMIST_FUNDRAISING_URL?.trim() ||
+      'https://api.tokenomist.ai/v1/fundraising/token'
     );
   }
 

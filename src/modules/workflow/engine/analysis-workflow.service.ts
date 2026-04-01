@@ -26,7 +26,7 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 
 type RunWorkflowInput = {
   query: string;
-  timeWindow: '24h' | '7d';
+  timeWindow: '24h' | '7d' | '30d';
   preferredChain: string | null;
   identity: AnalyzeIdentity;
   intent: IntentOutput;
@@ -57,7 +57,7 @@ type WorkflowRunOptions = {
 
 const WorkflowStateAnnotation = Annotation.Root({
   query: Annotation<string>(),
-  timeWindow: Annotation<'24h' | '7d'>(),
+  timeWindow: Annotation<'24h' | '7d' | '30d'>(),
   preferredChain: Annotation<string | null>(),
   identity: Annotation<AnalyzeIdentity>(),
   onStageEvent: Annotation<
@@ -98,7 +98,7 @@ export class AnalysisWorkflowService {
 
   async parseIntent(input: {
     query: string;
-    timeWindow: '24h' | '7d';
+    timeWindow: '24h' | '7d' | '30d';
     preferredChain: string | null;
     language?: IntentOutput['language'];
     memo?: IntentMemoSnapshot | null;
@@ -109,7 +109,7 @@ export class AnalysisWorkflowService {
 
   async parseIntentWithMeta(input: {
     query: string;
-    timeWindow: '24h' | '7d';
+    timeWindow: '24h' | '7d' | '30d';
     preferredChain: string | null;
     language?: IntentOutput['language'];
     memo?: IntentMemoSnapshot | null;

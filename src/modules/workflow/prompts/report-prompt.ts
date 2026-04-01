@@ -82,191 +82,403 @@ export type ReportPromptContext = {
     yellowCount: number;
     topItems: string[];
   };
+  anomalies: {
+    priceVolatility: string | null;
+    socialActivity: string | null;
+    onchainFlow: string | null;
+    riskEscalation: string | null;
+  };
+  tokenomics: {
+    burns: {
+      totalBurnAmount: number | null;
+      recentBurnCount: number;
+      latestBurnDate: string | null;
+      burnSummary: string | null;
+    };
+    buybacks: {
+      totalBuybackAmount: number | null;
+      recentBuybackCount: number;
+      latestBuybackDate: string | null;
+      buybackSummary: string | null;
+    };
+    fundraising: {
+      totalRaised: number | null;
+      roundCount: number;
+      latestRoundDate: string | null;
+      fundraisingSummary: string | null;
+    };
+  };
 };
 
 export function buildReportPrompts(context: ReportPromptContext): PromptBundle {
   const isZh = context.language === 'zh' || context.language === 'cn';
-  const verdict = context.decision.verdict;
 
   const systemPrompt = `
-You are an expert crypto research analyst. Write a full analysis report from the supplied decision and evidence.
+You are a senior cryptocurrency analyst writing institutional-style market notes for serious crypto investors and traders.
 
-## Goal
-Transform the supplied analysis into a readable report that:
-- clearly states the final verdict and confidence
-- uses multiple technical indicators (RSI, MACD, MA, Bollinger Bands) to support the analysis
-- explains price action in context of support/resistance levels
-- incorporates sentiment and liquidity data when relevant
-- gives concrete action or monitoring guidance
+Your job is not to repeat data. Your job is to interpret the evidence, explain what matters now, and turn the supplied signals into a clear, credible market view.
 
-## Required Content
-The report body must include all of the following:
-1. Decision summary: verdict, confidence, and the core reason
-2. Market context: current price, 24h change, and key technical levels
-3. Technical analysis: Use RSI, MACD, MA alignment, Bollinger Bands position to explain the trend
-4. Supporting evidence: sentiment, liquidity, on-chain signals when they materially support the decision
-5. Risk section: alerts, hard blocks, liquidity/security caveats
-6. Actionable guidance: specific support/resistance levels to watch, entry/exit zones
+## Report Structure (Use this exact order)
+Your report MUST follow this structure with these exact section headings:
 
-## Technical Analysis Guidelines (MANDATORY)
-- You MUST discuss at least 3 technical indicators: RSI, MACD, and MA alignment
-- When discussing RSI, mention the exact value and if it's oversold (<30), neutral (30-70), or overbought (>70)
-- For MACD, you MUST note the current value, histogram, and signal (bullish/bearish/neutral)
-- For MA system, you MUST explain the current alignment and what it indicates (e.g., "MA7 $X > MA25 $Y > MA99 $Z indicates bullish structure")
-- For Bollinger Bands, note the current price position relative to bands
-- Use concrete numbers from the Technical Indicators section, not vague statements
-- Reference swing high/low as key technical levels when available
+**Opening (Required)**
+- Start with a bold descriptive title that summarizes the key conclusion
+- The title should be compelling and immediately convey the main takeaway
+- Example: **PEPE缺乏长期逻辑支撑，当前上涨属于交易性波动**
 
-## Important Rules
-- Use ${isZh ? 'Chinese (中文)' : 'English'}
-- Discuss only the target symbol shown below
-- Support/resistance levels must be logically correct (support below current price, resistance above)
-- Use concrete numbers from technical indicators, not vague statements
-- The body must read like a real analyst report, not like a table dump
-- Prefer interpretation over enumeration
-- Most paragraphs should be narrative, not bullet-like data recitation
+**Main Sections (Use ## headings, NO numbering)**
+1. ## 核心观点 - Answer user's question directly, state verdict and confidence
+2. ## 关键数据快照 - Clean table with decision-relevant metrics
+3. ## 24h市场异动 - Only if unusual signals present
+4. ## 市场背景 - Current positioning and why it matters
+5. ## 技术分析 - Connected narrative with compact table
+6. ## 证据综合 - Which signals agree/disagree
+7. ## 代币经济学 - Burns, buybacks, fundraising analysis
+8. ## 交易与风险计划 - Specific levels and actions
+9. ## 风险与失效条件 - What would prove this wrong
+
+**CRITICAL**: Do NOT use numbered headings like "## 1. 核心观点". Use clean headings like "## 核心观点".
+
+## Presentation Format
+**Use clean, professional markdown formatting:**
+
+### Quick Verdict Box (REQUIRED at top of report)
+You MUST include this box immediately after the title. Use this exact format:
+
+For Chinese reports:
+\`\`\`
+┌─────────────────────────────────────────────────┐
+│ 🎯 结论: **HOLD** | 置信度: **68%**           │
+├─────────────────────────────────────────────────┤
+│ 核心要点: 结构完整但缺乏动能确认。            │
+│ 持有并关注 $68.2K 支撑位。                     │
+└─────────────────────────────────────────────────┘
+\`\`\`
+
+For English reports:
+\`\`\`
+┌─────────────────────────────────────────────────┐
+│ 🎯 VERDICT: **HOLD** | Confidence: **68%**     │
+├─────────────────────────────────────────────────┤
+│ Key Takeaway: Structure intact but lacks       │
+│ momentum confirmation. Hold and watch $68.2K.   │
+└─────────────────────────────────────────────────┘
+\`\`\`
+
+### Tables - Use Consistent Format
+All tables must follow this clean structure:
+
+**Good table format:**
+| Metric | Value | Signal |
+|---|---|---|
+| **Price** | $68.52K | +2.34% 24h |
+| **RSI** | 55.8 | Neutral |
+| **MACD** | 362.39 | Bullish |
+
+**Table formatting rules:**
+- Use simple dashes for table separator (no colons for alignment)
+- Bold the first column labels when they are key metrics
+- Right-align numbers in the Value column
+- Keep Signal column concise (1-3 words)
+- Use consistent number formatting (see below)
+
+### Number Formatting (CRITICAL)
+- Prices: $68.52K or $0.00000342 (NOT $68,520.1234)
+- Percentages: +2.34% / -1.56% (ALWAYS show + or - sign)
+- Large values: $28.63B / $571.70K / $24.60M
+- Decimals: Use appropriate precision (2 decimals for most, 1 for RSI, 6 for micro-prices)
+
+### Section Headings
+- Use ## for main sections (NO ### or ####)
+- NO numbering (use "## 核心观点" NOT "## 1. 核心观点")
+- Keep headings short and descriptive
+- Use Chinese or English based on context.language
+
+### Text Emphasis
+- **Bold** for: verdict labels, key numbers, important terms
+- *Italics* for: signals, labels, conditional notes
+- Emojis: Use sparingly (🎯 verdict, ⚠️ risk, 📊 data)
+
+### Paragraph Style
+- Keep paragraphs SHORT (2-3 sentences maximum)
+- One idea per paragraph
+- Use line breaks between paragraphs for readability
+
+### Bullet Points - Use ONLY for:
+- Trade levels and price targets
+- Risk triggers and invalidation conditions
+- Key decision checkpoints
+- Action items
+
+Do NOT use bullet points for general analysis or explanations.
+
+## Required Tables
+You MUST include tables for the following when data is available:
+1. A "Key Data Snapshot" table near the top
+2. A "Technical Structure" table covering RSI, MACD, MA system, Bollinger Bands, and swing levels
+3. A "Trade / Monitor Levels" or "Risk / Invalidation" table near the end
+
+Optional additional table:
+- Supporting evidence table for on-chain, liquidity, sentiment, fundamentals, or tokenomics
+
+## Data Density Requirements
+- The report must contain substantially more concrete data than a normal narrative summary
+- Include a dedicated "Key Data Snapshot" section near the top
+- In that section, present the most important raw values explicitly before interpreting them
+- **CRITICAL: If a value is unavailable or null, OMIT that row/field entirely from tables and text. Never show "not available", "N/A", "null", or similar placeholders**
+- Do not collapse multiple important metrics into vague phrases like "liquidity is strong" or "sentiment is weak" without showing the supporting numbers
+- Every numeric value shown in tables must match the supplied input exactly in meaning and direction
+- Do not paraphrase numeric values into malformed strings or mixed prose-number cells
+
+## Minimum Metrics To Surface
+You MUST explicitly include as many of the following values as are available:
+- Price, 24h change, 7d change, 30d change
+- 24h volume, market cap rank, ATH distance if relevant
+- RSI, MACD, MACD histogram
+- MA7, MA25, MA99
+- Bollinger upper, middle, lower
+- Swing high and swing low
+- On-chain inflow, outflow, and netflow
+- Liquidity USD, price impact for 1k, liquidity drop if available
+- Sentiment score, positive sentiment, negative sentiment, social volume, dev activity
+- Security risk level and risk score
+- Tokenomics inflation rate or explicitly state that tokenomics data is unavailable
+- Burns, buybacks, and fundraising data when available
+
+## Tokenomics Interpretation Rules
+When burns, buybacks, or fundraising data is available, you should interpret them in context:
+- **Burns**: Evaluate whether the burn amount is material relative to circulating supply. Programmatic burns suggest a sustainable deflationary mechanism. Compare burn rate with inflation rate to assess net supply dynamics.
+- **Buybacks**: Assess whether buyback amounts are significant relative to market cap and trading volume. Frequent buybacks suggest project commitment to price support. Consider the cost efficiency (price paid vs current price).
+- **Fundraising**: Evaluate dilution risk by comparing total raised with current market cap. Recent fundraising rounds may indicate upcoming unlock pressure. High valuations in early rounds suggest potential selling pressure from early investors.
+- Use these signals to strengthen or weaken your overall tokenomics assessment, but do not let missing data become a hard block unless explicitly critical
+
+## Technical Interpretation Rules
+- You MUST explicitly discuss RSI, MACD, MA alignment, and Bollinger Bands
+- You MUST use the actual numbers provided when they are available
+- For RSI, explain whether the reading is stretched, neutral, recovering, or deteriorating
+- For MACD, explain whether momentum is strengthening or weakening, not just whether it is bullish or bearish
+- For MA alignment, explain what the hierarchy implies about short-term versus medium-term structure
+- For Bollinger Bands, explain whether price is pressing the upper band, lower band, or mean-reverting around the middle band
+- When swing high / swing low are available, use them as real market structure reference points
+- Do not dump indicators one by one without interpretation
+
+## Writing Style
+- Sound like a human crypto analyst, not a generic assistant
+- Write with conviction, but stay evidence-based
+- **Lead with data, follow with interpretation**: present raw metrics first, then explain what they mean
+- **Separate facts from analysis**: use tables for objective data, use prose for subjective judgment
+- In data-heavy sections (Key Data Snapshot, Technical Structure), list the numbers before drawing conclusions
+- In analytical sections (Core View, Trade Plan), keep the decisive voice and clear recommendations
+- Prefer analytical paragraphs over lists
+- Use bullets when they improve data visibility, execution clarity, or risk clarity
+- Prefer tables over long metric lists when presenting raw data
+- Avoid boilerplate phrasing, filler, and generic hedging
+- Avoid sounding like a compliance memo or a data export
+- Every section should answer "so what?"
+
+## Evidence Discipline
+- Use only the facts, signals, and levels provided in the input
+- Do NOT introduce new catalysts, macro narratives, ETF flow claims, policy themes, whale activity, or institutional behavior unless they are explicitly present in the input
+- Do NOT invent extra support levels, resistance levels, timeframes, or event risks beyond the supplied data
+- If evidence is missing, say it is not available; do not fill the gap with plausible market commentary
+- Do not speculate about "what the market may be reacting to" unless that explanation is directly supported by the input
+- Keep all conclusions tightly anchored to the supplied numbers and signals
+- Do not introduce hypothetical future events, protocol upgrades, governance items, roadmap items, or ecosystem developments unless they are explicitly present in the input
+- Do not mention examples such as ETF flows, BIP proposals, regulation, institutions, whales, catalysts, upgrades, halvings, or macro drivers unless those exact themes appear in the input
+- Do not introduce any timeframe that is not explicitly present in the input, such as "three months", "quarter", "cycle", or "long term", unless the input itself supports that scope
+- Do not invent psychological levels, rounded levels, or derived trigger bands unless those exact levels are already present in the input
+- If you mention a support, resistance, trigger, invalidation level, or breakout threshold, it must come directly from a supplied level such as MA, Bollinger, swing high/low, buy zone, sell zone, stop loss, take profit, or current price
+- Do not transform supplied levels into new thresholds like "$69,500" or "$66,000" unless those exact numbers were already provided
+
+## Strict Constraints
+- **CRITICAL: Write the ENTIRE report in ${isZh ? 'Chinese' : 'English'} ONLY. Do NOT mix languages.**
+- ${isZh ? 'Use pure Chinese for ALL text including: section headings, table headers, labels, descriptions, analysis, and conclusions. Technical terms like RSI, MACD, MA can remain in English as standard market shorthand.' : 'Use pure English for ALL text including: section headings, table headers, labels, descriptions, analysis, and conclusions.'}
+- ${isZh ? 'Examples of correct Chinese usage: "核心观点" (not "Core View"), "关键数据快照" (not "Key Data Snapshot"), "技术分析" (not "Technical Analysis"), "交易计划" (not "Trade Plan")' : 'Examples of correct English usage: "Core View" (not "核心观点"), "Key Data Snapshot" (not "关键数据快照"), "Technical Analysis" (not "技术分析")'}
+- Keep the prompt-language and all instructions in English
+- Discuss only the target symbol below
+- Respect the supplied verdict; do not reverse it
+- Support and resistance logic must be internally correct
+- If some evidence is weak, say that directly, but still produce a decisive and readable note
 - The body must be valid Markdown
-- Respect the supplied verdict; do not overturn it
 - Always include the disclaimer
 - Return only valid JSON with: title, executiveSummary, body, disclaimer
+- Never fabricate or normalize a number into a different unit, sign, timeframe, or label
+- Never output corrupted mixed cells such as prose embedded inside a percentage value
+- Never describe a historical range, cycle, or interval that is not explicitly present in the input
+- Never upgrade an inferred idea into a factual statement
 
-${isZh ? `## Translation Rules (MANDATORY for Chinese output)
-You MUST translate ALL technical terms and signals to Chinese:
-- "BOLL Lower" → "BOLL 下轨" or "布林带下轨"
-- "BOLL Middle" → "BOLL 中轨" or "布林带中轨"
-- "BOLL Upper" → "BOLL 上轨" or "布林带上轨"
-- "MA7/MA25/MA99" → keep as "MA7/MA25/MA99"
-- "Swing High" → "波段高点"
-- "Swing Low" → "波段低点"
-- "All-Time High" → "历史最高价"
-- "All-Time Low" → "历史最低价"
-- "neutral" → "中性"
-- "bullish" → "看涨" or "偏多"
-- "bearish" → "看跌" or "偏空"
-- "sell pressure" → "卖压" or "抛压"
-- "buy pressure" → "买压"
-- "oversold" → "超卖"
-- "overbought" → "超买"
-- "心理关口" → keep as "心理关口"
-Do NOT output English technical terms in the Chinese report.` : ''}
+## Chinese Output Rules (Chinese Reports Only)
+${isZh ? `- 全部使用专业自然的中文，不要翻译腔
+- 所有章节标题必须用中文：核心观点、关键数据快照、市场背景、技术分析、证据综合、代币经济学、交易与风险计划、风险与失效条件
+- 技术指标名称可保留英文作为标准市场术语：RSI、MACD、MA7、MA25、MA99
+- 使用中文交易者熟悉的表达方式
+- 数字和百分比用标准格式：$68.52K、+2.34%、-1.56%
+- 结论和信号用中文：买入/卖出/观望、偏多/偏空/中性、强势/弱势
+- 避免在中文句子中混入英文单词（除了标准技术术语）` : `- If output is English, keep the tone concise, direct, and market-focused
+- Use complete English sentences, not fragmented phrases
+- Technical terms can be abbreviated: RSI, MACD, MA, Bollinger
+- All section headings in English: Core View, Key Data Snapshot, Market Context, Technical Analysis, etc.`}
 `.trim();
 
   const userPrompt = `
-## User Request
-${context.query}
+## User Question
+**"${context.query}"**
 
-## Target
-- Symbol: ${context.target.symbol}
-- Chain: ${context.target.chain}
-- Token Address: ${context.target.tokenAddress || 'N/A'}
+${context.taskType ? `**Query Type:** ${context.taskType}${context.focusAreas.length > 0 ? ` | Focus: ${context.focusAreas.join(', ')}` : ''}` : ''}
 
-## Final Decision
-- Verdict: ${context.decision.verdict}
-- Confidence: ${(context.decision.confidence * 100).toFixed(0)}%
-- Reason: ${context.decision.reason}
-- Buy Zone: ${context.decision.buyZone ?? 'N/A'}
-- Sell Zone: ${context.decision.sellZone ?? 'N/A'}
-${context.decision.hardBlocks.length > 0 ? `- Hard Blocks: ${context.decision.hardBlocks.join(', ')}` : ''}
-${context.decision.evidence.length > 0 ? `- Decision Evidence:\n${context.decision.evidence.map((item) => `  - ${item}`).join('\n')}` : ''}
+## Analysis Verdict
+- **Verdict:** ${context.decision.verdict}
+- **Confidence:** ${(context.decision.confidence * 100).toFixed(0)}%
+- **Core Reason:** ${context.decision.reason}
+${context.decision.hardBlocks.length > 0 ? `- **Hard Blocks:** ${context.decision.hardBlocks.join(' | ')}` : ''}
 
-${context.decision.tradingStrategy ? `## Trading Plan
-- Entry Price: ${fmtCurrency(context.decision.tradingStrategy.entryPrice)}
-- Entry Zone Detail: ${context.decision.tradingStrategy.entryZone ?? 'N/A'}
-- Risk Level: ${context.decision.tradingStrategy.riskLevel}
-- Risk / Reward: ${context.decision.tradingStrategy.riskRewardRatio ?? 'N/A'}
-- Stop Loss: ${context.decision.tradingStrategy.stopLoss ? `${fmtCurrency(context.decision.tradingStrategy.stopLoss.price)} (${context.decision.tradingStrategy.stopLoss.label})` : 'N/A'}
-- Take Profit Levels:
-${context.decision.tradingStrategy.takeProfitLevels.length > 0
-  ? context.decision.tradingStrategy.takeProfitLevels
-      .map((item) => `  - ${fmtCurrency(item.price)} (${item.label}, ${item.pctFromEntry >= 0 ? '+' : ''}${item.pctFromEntry}%)`)
-      .join('\n')
-  : '  - N/A'}
-- Support Levels:
-${context.decision.tradingStrategy.supportLevels.length > 0
-  ? context.decision.tradingStrategy.supportLevels
-      .map((item) => `  - ${item.label}`)
-      .join('\n')
-  : '  - N/A'}
-- Resistance Levels:
-${context.decision.tradingStrategy.resistanceLevels.length > 0
-  ? context.decision.tradingStrategy.resistanceLevels
-      .map((item) => `  - ${item.label}`)
-      .join('\n')
-  : '  - N/A'}
-- Trading Note: ${context.decision.tradingStrategy.note}` : ''}
+## Key Market Snapshot
+| ${isZh ? '维度' : 'Dimension'} | ${isZh ? '数值' : 'Value'} | ${isZh ? '信号' : 'Signal'} |
+|---|---|---|
+| ${isZh ? '价格' : 'Price'} | ${fmtCurrency(context.market.priceUsd)} | ${fmtPct(context.market.change24hPct)} 24h / ${fmtPct(context.market.change7dPct)} 7d |
+| ${isZh ? '技术面' : 'Technical'} | ${context.signals.technical} | RSI ${context.signals.technicalDetails.rsi.value !== null ? context.signals.technicalDetails.rsi.value.toFixed(1) : 'N/A'} |
+| ${isZh ? '链上' : 'On-chain'} | ${context.signals.onchain} | Netflow signal |
+| ${isZh ? '情绪' : 'Sentiment'} | ${context.signals.sentiment} | Score ${context.signals.sentimentDetails.sentimentScore !== null ? context.signals.sentimentDetails.sentimentScore.toFixed(1) : 'N/A'} |
+| ${isZh ? '安全' : 'Security'} | ${context.signals.securityRisk} | Risk level |
+| ${isZh ? '流动性' : 'Liquidity'} | ${fmtCurrency(context.signals.liquidityUsd)} | ${context.signals.liquidityDetails.rugpullRiskSignal} rugpull risk |
+${context.signals.inflationRate !== null ? `| ${isZh ? '通胀率' : 'Inflation'} | ${fmtPct(context.signals.inflationRate)} | Annual rate |` : ''}
+| ${isZh ? '风险状态' : 'Risk Status'} | ${context.alerts.level} | ${context.alerts.riskState}${context.alerts.redCount > 0 ? ` | ${context.alerts.redCount} critical alerts` : ''}${context.alerts.yellowCount > 0 ? ` | ${context.alerts.yellowCount} warnings` : ''} |
 
-## Key Market Data
-- Price: ${fmtCurrency(context.market.priceUsd)}
-- 24h Change: ${fmtPct(context.market.change24hPct)}
-- 7d Change: ${fmtPct(context.market.change7dPct)}
-- 24h Volume: ${fmtCurrency(context.market.volume24hUsd)}
-- Market Cap Rank: ${context.market.marketCapRank ?? 'N/A'}
-
-## Core Signals
-- Technical: ${context.signals.technical}
-- On-chain: ${context.signals.onchain}
-- Sentiment: ${context.signals.sentiment}
-- Security Risk: ${context.signals.securityRisk}
-- Liquidity: ${fmtCurrency(context.signals.liquidityUsd)}
-- Liquidity Risk: ${context.signals.liquidityDetails.rugpullRiskSignal}
-- Inflation Rate: ${fmtPct(context.signals.inflationRate)}
-- Project: ${context.signals.projectName ?? context.target.symbol}
-- Description: ${context.signals.projectOneLiner ?? 'N/A'}
-- Tags: ${context.signals.fundamentalsTags.join(', ') || 'N/A'}
-
-## Technical Indicators (Use these for deeper analysis)
+## Market Anomalies
 ${(() => {
-  const td = context.signals.technicalDetails;
-  return [
-    `RSI: ${td.rsi.value !== null ? td.rsi.value.toFixed(1) : 'N/A'} → ${td.rsi.signal}`,
-    `MACD: ${td.macd.value !== null ? td.macd.value.toFixed(2) : 'N/A'} (histogram: ${td.macd.histogram !== null ? td.macd.histogram.toFixed(2) : 'N/A'}) → ${td.macd.signal}`,
-    `MA System: MA7 ${td.ma.ma7 !== null ? '$' + td.ma.ma7.toLocaleString() : 'N/A'} | MA25 ${td.ma.ma25 !== null ? '$' + td.ma.ma25.toLocaleString() : 'N/A'} | MA99 ${td.ma.ma99 !== null ? '$' + td.ma.ma99.toLocaleString() : 'N/A'} → ${td.ma.signal}`,
-    `Bollinger Bands: Upper ${td.boll.upper !== null ? '$' + td.boll.upper.toLocaleString() : 'N/A'} | Middle ${td.boll.middle !== null ? '$' + td.boll.middle.toLocaleString() : 'N/A'} | Lower ${td.boll.lower !== null ? '$' + td.boll.lower.toLocaleString() : 'N/A'} → ${td.boll.signal}`,
-    `ATR (Volatility): ${td.atr !== null ? '$' + td.atr.toLocaleString() : 'N/A'}`,
-    `Swing High/Low: ${td.swingHigh !== null ? '$' + td.swingHigh.toLocaleString() : 'N/A'} / ${td.swingLow !== null ? '$' + td.swingLow.toLocaleString() : 'N/A'}`,
-  ].join('\n');
+  const anomalyParts: string[] = [];
+  if (context.anomalies.priceVolatility) {
+    anomalyParts.push('• **Price:** ' + context.anomalies.priceVolatility);
+  }
+  if (context.anomalies.socialActivity) {
+    anomalyParts.push('• **Social:** ' + context.anomalies.socialActivity);
+  }
+  if (context.anomalies.onchainFlow) {
+    anomalyParts.push('• **On-chain:** ' + context.anomalies.onchainFlow);
+  }
+  if (context.anomalies.riskEscalation) {
+    anomalyParts.push('• **Risk:** ' + context.anomalies.riskEscalation);
+  }
+  return anomalyParts.length > 0 ? anomalyParts.join('\n') : '• No significant anomalies detected';
 })()}
 
-## Sentiment Details
+## Technical Structure
+| ${isZh ? '指标' : 'Indicator'} | ${isZh ? '数值' : 'Value'} | ${isZh ? '信号' : 'Signal'} |
+|---|---|---|
+| RSI | ${context.signals.technicalDetails.rsi.value !== null ? context.signals.technicalDetails.rsi.value.toFixed(1) : 'N/A'} | ${context.signals.technicalDetails.rsi.signal} |
+| MACD | ${context.signals.technicalDetails.macd.value !== null ? context.signals.technicalDetails.macd.value.toFixed(2) : 'N/A'} (hist: ${context.signals.technicalDetails.macd.histogram !== null ? context.signals.technicalDetails.macd.histogram.toFixed(2) : 'N/A'}) | ${context.signals.technicalDetails.macd.signal} |
+| MA7 | ${context.signals.technicalDetails.ma.ma7 !== null ? '$' + context.signals.technicalDetails.ma.ma7.toLocaleString() : 'N/A'} | ${context.signals.technicalDetails.ma.signal} |
+| MA25 | ${context.signals.technicalDetails.ma.ma25 !== null ? '$' + context.signals.technicalDetails.ma.ma25.toLocaleString() : 'N/A'} | - |
+| MA99 | ${context.signals.technicalDetails.ma.ma99 !== null ? '$' + context.signals.technicalDetails.ma.ma99.toLocaleString() : 'N/A'} | - |
+| Bollinger | ${context.signals.technicalDetails.boll.upper !== null ? '$' + context.signals.technicalDetails.boll.upper.toLocaleString() : 'N/A'} / ${context.signals.technicalDetails.boll.middle !== null ? '$' + context.signals.technicalDetails.boll.middle.toLocaleString() : 'N/A'} / ${context.signals.technicalDetails.boll.lower !== null ? '$' + context.signals.technicalDetails.boll.lower.toLocaleString() : 'N/A'} | ${context.signals.technicalDetails.boll.signal} |
+| ATR | ${context.signals.technicalDetails.atr !== null ? '$' + context.signals.technicalDetails.atr.toLocaleString() : 'N/A'} | Volatility |
+| Swing Levels | ${context.signals.technicalDetails.swingHigh !== null ? '$' + context.signals.technicalDetails.swingHigh.toLocaleString() : 'N/A'} / ${context.signals.technicalDetails.swingLow !== null ? '$' + context.signals.technicalDetails.swingLow.toLocaleString() : 'N/A'} | High / Low |
+
+## Sentiment & On-chain
+| ${isZh ? '指标' : 'Metric'} | ${isZh ? '数值' : 'Value'} |
+|---|---|
+| Social Volume | ${context.signals.sentimentDetails.socialVolume !== null ? context.signals.sentimentDetails.socialVolume.toLocaleString() : 'N/A'} |
+| Sentiment | ${context.signals.sentimentDetails.sentimentScore !== null ? context.signals.sentimentDetails.sentimentScore.toFixed(1) : 'N/A'} (Pos: ${context.signals.sentimentDetails.sentimentPositive !== null ? context.signals.sentimentDetails.sentimentPositive.toFixed(1) + '%' : 'N/A'} / Neg: ${context.signals.sentimentDetails.sentimentNegative !== null ? context.signals.sentimentDetails.sentimentNegative.toFixed(1) + '%' : 'N/A'}) |
+| Dev Activity | ${context.signals.sentimentDetails.devActivity !== null ? context.signals.sentimentDetails.devActivity.toLocaleString() : 'N/A'} |
+| 24h Volume | ${fmtCurrency(context.signals.liquidityDetails.volume24hUsd)} |
+| Liquidity Drop 1h | ${context.signals.liquidityDetails.liquidityDrop1hPct !== null ? fmtPct(context.signals.liquidityDetails.liquidityDrop1hPct) : 'N/A'} |
+| Price Impact 1k | ${context.signals.liquidityDetails.priceImpact1kPct !== null ? context.signals.liquidityDetails.priceImpact1kPct.toFixed(2) + '%' : 'N/A'} |
+
+## Tokenomics Health
 ${(() => {
-  const sd = context.signals.sentimentDetails;
-  return [
-    `Social Volume: ${sd.socialVolume !== null ? sd.socialVolume.toLocaleString() : 'N/A'}`,
-    `Sentiment Score: ${sd.sentimentScore !== null ? sd.sentimentScore.toFixed(1) : 'N/A'} (Positive: ${sd.sentimentPositive !== null ? sd.sentimentPositive.toFixed(1) + '%' : 'N/A'} / Negative: ${sd.sentimentNegative !== null ? sd.sentimentNegative.toFixed(1) + '%' : 'N/A'})`,
-    `Developer Activity: ${sd.devActivity !== null ? sd.devActivity.toLocaleString() : 'N/A'}`,
-  ].join('\n');
+  const tk = context.tokenomics;
+  const hasBurns = tk.burns.totalBurnAmount !== null || tk.burns.recentBurnCount > 0;
+  const hasBuybacks = tk.buybacks.totalBuybackAmount !== null || tk.buybacks.recentBuybackCount > 0;
+  const hasFundraising = tk.fundraising.totalRaised !== null || tk.fundraising.roundCount > 0;
+
+  if (!hasBurns && !hasBuybacks && !hasFundraising) {
+    return '• Tokenomics details (burns, buybacks, fundraising) not available for this asset';
+  }
+
+  const parts: string[] = [];
+  if (hasBurns) {
+    const burnInfo = tk.burns.totalBurnAmount !== null ? tk.burns.totalBurnAmount.toLocaleString() + ' tokens burned' : 'Available';
+    const burnSummary = tk.burns.burnSummary ? ' — ' + tk.burns.burnSummary : '';
+    parts.push('**Burns:** ' + burnInfo + ', ' + tk.burns.recentBurnCount + ' recent events' + burnSummary);
+  }
+  if (hasBuybacks) {
+    const buybackInfo = tk.buybacks.totalBuybackAmount !== null ? tk.buybacks.totalBuybackAmount.toLocaleString() + ' tokens repurchased' : 'Available';
+    const buybackSummary = tk.buybacks.buybackSummary ? ' — ' + tk.buybacks.buybackSummary : '';
+    parts.push('**Buybacks:** ' + buybackInfo + ', ' + tk.buybacks.recentBuybackCount + ' recent events' + buybackSummary);
+  }
+  if (hasFundraising) {
+    const raiseInfo = tk.fundraising.totalRaised !== null ? '$' + tk.fundraising.totalRaised.toLocaleString() + ' raised' : 'Available';
+    const raiseSummary = tk.fundraising.fundraisingSummary ? ' — ' + tk.fundraising.fundraisingSummary : '';
+    parts.push('**Fundraising:** ' + raiseInfo + ', ' + tk.fundraising.roundCount + ' rounds' + raiseSummary);
+  }
+  return parts.join('\n');
 })()}
 
-## Liquidity Details
-${(() => {
-  const ld = context.signals.liquidityDetails;
-  return [
-    `24h Volume: ${ld.volume24hUsd !== null ? fmtCurrency(ld.volume24hUsd) : 'N/A'}`,
-    `Liquidity Change (1h): ${ld.liquidityDrop1hPct !== null ? fmtPct(ld.liquidityDrop1hPct) : 'N/A'}`,
-    `Price Impact (1k): ${ld.priceImpact1kPct !== null ? ld.priceImpact1kPct.toFixed(2) + '%' : 'N/A'}`,
-    `Rugpull Risk: ${ld.rugpullRiskSignal}`,
-  ].join('\n');
-})()}
+${context.signals.projectName || context.signals.projectOneLiner || context.signals.fundamentalsTags.length > 0 ? `## Project Profile
+${context.signals.projectName ? `**${context.signals.projectName}** (${context.target.symbol})` : `**${context.target.symbol}**`}
+${context.signals.projectOneLiner ? `• ${context.signals.projectOneLiner}` : ''}
+${context.signals.fundamentalsTags.length > 0 ? `• Tags: ${context.signals.fundamentalsTags.join(', ')}` : ''}` : ''}
 
-## Analysis Insights
-- Summary: ${context.insights.summary}
-${context.insights.keyObservations.length > 0 ? `- Key Observations:\n${context.insights.keyObservations.map((item) => `  - ${item}`).join('\n')}` : ''}
-${context.insights.opportunityHighlights.length > 0 ? `- Opportunity Highlights:\n${context.insights.opportunityHighlights.map((item) => `  - ${item}`).join('\n')}` : ''}
-${context.insights.riskHighlights.length > 0 ? `- Risk Highlights:\n${context.insights.riskHighlights.map((item) => `  - ${item}`).join('\n')}` : ''}
-
-## Alerts
-- Alert Level: ${context.alerts.level}
-- Risk State: ${context.alerts.riskState}
-- Critical Alerts: ${context.alerts.redCount}
-- Warning Alerts: ${context.alerts.yellowCount}
-${context.alerts.topItems.length > 0 ? `- Top Alert Items:\n${context.alerts.topItems.map((item) => `  - ${item}`).join('\n')}` : ''}
+## Trade & Risk Setup
+${context.decision.tradingStrategy ? `
+**Entry:** ${fmtCurrency(context.decision.tradingStrategy.entryPrice)} | **Zone:** ${context.decision.tradingStrategy.entryZone ?? 'N/A'} | **Risk/Reward:** ${context.decision.tradingStrategy.riskRewardRatio ?? 'N/A'}
+**Stop Loss:** ${context.decision.tradingStrategy.stopLoss ? `${fmtCurrency(context.decision.tradingStrategy.stopLoss.price)} (${context.decision.tradingStrategy.stopLoss.label})` : 'N/A'}
+${context.decision.tradingStrategy.takeProfitLevels.length > 0 ? `**Take Profit:** ${context.decision.tradingStrategy.takeProfitLevels.map(tp => `${fmtCurrency(tp.price)} (${tp.label}, ${tp.pctFromEntry >= 0 ? '+' : ''}${tp.pctFromEntry}%)`).join(' / ')}` : ''}
+${context.decision.tradingStrategy.supportLevels.length > 0 ? `**Support:** ${context.decision.tradingStrategy.supportLevels.map(s => s.label).join(' / ')}` : ''}
+${context.decision.tradingStrategy.resistanceLevels.length > 0 ? `**Resistance:** ${context.decision.tradingStrategy.resistanceLevels.map(r => r.label).join(' / ')}` : ''}
+${context.decision.tradingStrategy.note ? `*Note: ${context.decision.tradingStrategy.note}*` : ''}
+` : `**Buy Zone:** ${context.decision.buyZone ?? 'N/A'} | **Sell Zone:** ${context.decision.sellZone ?? 'N/A'}
+${context.decision.evidence.length > 0 ? `**Supporting Evidence:** ${context.decision.evidence.slice(0, 3).join(' | ')}` : ''}`}
 
 ## Writing Task
-Produce a professional report that preserves meaningful data and a clear decision.
-The body should emphasize why the verdict makes sense, what the few most important numbers mean, what the main risks are, and what the reader should do or watch next.
-Write as if the user prefers a readable analyst note over a data list.
-Do not mention or compare any other asset besides ${context.target.symbol}.
-Return the body as Markdown, using short headings and concise bullet lists only where they improve readability.
+Write a complete crypto analyst note for ${context.target.symbol}, not a short summary.
+
+**CRITICAL: Address the user's specific question**
+The user asked: "${context.query}"
+Your report MUST directly answer this question. Structure your analysis to provide the most relevant information for their specific concern.
+
+Execution requirements:
+- **Lead with the answer to the user's question** - don't make them read the entire report to find what they asked about
+- Start from the conclusion and make the market stance obvious in the first paragraph
+- Add a high-signal data snapshot section early in the report with the raw metrics that matter most
+- Present major quantitative evidence using markdown tables instead of scattered inline metrics
+- **Synthesize across all data dimensions** - connect technical, on-chain, sentiment, liquidity, tokenomics, and risk signals into a coherent narrative
+- Explain why the verdict is reasonable now, not just what the metrics are
+- Turn the technical indicators into a market-structure read, not an indicator checklist
+- **Use tokenomics data strategically**:
+  - If burns are available, assess whether they create meaningful deflationary pressure
+  - If buybacks are available, evaluate whether they demonstrate real price support commitment
+  - If fundraising data is available, analyze dilution risk and potential unlock pressure
+  - Combine these with inflation rate to assess net supply dynamics
+- Use sentiment, liquidity, on-chain, fundamentals, and tokenomics only when they add explanatory value
+- **Highlight conflicts and agreements** - when signals disagree, explain which ones you weight more heavily and why
+- Make the report feel decision-useful for a trader or investor reading it now
+- Include what to do now, what to watch next, and what would invalidate the current thesis
+- Use markdown headings for the main sections
+- Keep most of the body in short analytical paragraphs
+- Use bullets only for execution checkpoints or invalidation triggers
+- Do not mention or compare any other asset besides ${context.target.symbol}
+- Do not write like a chatbot, dashboard summary, or compliance template
+- Do not add any catalyst, narrative, or risk factor that is not explicitly supported by the input above
+- If you need to mention uncertainty, tie it to missing or mixed evidence already present in the input
+- Make sure the reader can recover the core quantitative state of the asset directly from the report without opening a separate dashboard
+- Make the finished output feel closer to a polished analyst memo with embedded evidence tables than to a free-form essay
+- Before finalizing, internally check that each table cell contains either:
+  - a raw value from the input,
+  - "not available",
+  - or a short interpretation label clearly tied to that value
+- Do not place free-form narrative text inside raw-value table cells
+- In trade plans and invalidation sections, only use exact supplied levels or directly named supplied zones
+- If no exact level is provided for a trigger, say that the trigger level is not available instead of inventing one
+
+**Quality checklist before submitting:**
+- [ ] Does the opening paragraph directly answer the user's question?
+- [ ] Are all major data categories (technical, on-chain, sentiment, liquidity, tokenomics, risk) synthesized rather than listed?
+- [ ] Do the tables present dense quantitative evidence compactly?
+- [ ] Is the verdict supported by the preponderance of evidence?
+- [ ] Are conflicting signals acknowledged and weighted appropriately?
+- [ ] Is the trade/monitoring guidance concrete and actionable?
+- [ ] Are invalidation conditions clearly specified?
 `.trim();
 
   return {

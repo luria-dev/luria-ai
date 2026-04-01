@@ -98,10 +98,52 @@ export type TokenomicsConflict = {
   reason: string;
 };
 
+export type BurnEvent = {
+  burnEventLabel: string;
+  burnType: string;
+  burnDate: string;
+  amount: number;
+  metadata: {
+    burners: string[];
+    burnReasons: string[];
+  };
+};
+
+export type BuybackEvent = {
+  buybackEventLabel: string;
+  buybackType: string;
+  buybackDate: string;
+  tokenAmount: number;
+  value: number;
+  spentAmount: number;
+  spentUnit: string;
+};
+
+export type FundraisingRound = {
+  roundName: string;
+  fundingDate: string;
+  amountRaised: number;
+  currency: string;
+  valuation: number | null;
+  investors: string[];
+};
+
 export type TokenomicsSnapshot = {
   allocation: TokenAllocation;
   vestingSchedule: VestingItem[];
   inflationRate: InflationRate;
+  burns: {
+    totalBurnAmount: number | null;
+    recentBurns: BurnEvent[];
+  };
+  buybacks: {
+    totalBuybackAmount: number | null;
+    recentBuybacks: BuybackEvent[];
+  };
+  fundraising: {
+    totalRaised: number | null;
+    rounds: FundraisingRound[];
+  };
   evidence: TokenomicsEvidence[];
   evidenceConflicts: TokenomicsConflict[];
   asOf: string;
@@ -252,7 +294,7 @@ export type ExchangeNetflow = {
 };
 
 export type CexNetflowSnapshot = {
-  window: '24h' | '7d';
+  window: '24h' | '7d' | '30d';
   inflowUsd: number | null;
   outflowUsd: number | null;
   netflowUsd: number | null;

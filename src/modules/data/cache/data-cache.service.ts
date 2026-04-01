@@ -99,7 +99,7 @@ export class DataCacheService {
     identity: AnalyzeIdentity;
     payload: unknown;
     source: string;
-    timeWindow?: '24h' | '7d';
+    timeWindow?: '24h' | '7d' | '30d';
     policy: CachePolicyResolved;
   }): Promise<void> {
     if (!this.isDbReady()) {
@@ -183,7 +183,7 @@ export class DataCacheService {
     dataType: ReadThroughCacheInput<unknown>['dataType'];
     identity: AnalyzeIdentity;
     source: string;
-    timeWindow?: '24h' | '7d';
+    timeWindow?: '24h' | '7d' | '30d';
   }): string {
     const tokenAddress = this.normalizeTokenAddress(input.identity.tokenAddress);
     return [

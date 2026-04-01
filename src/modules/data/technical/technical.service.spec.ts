@@ -5,7 +5,7 @@ describe('TechnicalService.fetchSnapshot', () => {
     symbol: 'PEPE',
     chain: 'ethereum',
     tokenAddress: '0x6982508145454ce325ddbe47a25d4ec3d2311933',
-    sourceId: 'coinmarketcap:24478',
+    sourceId: 'coingecko:pepe',
   };
 
   const originalFetch = global.fetch;
@@ -15,30 +15,24 @@ describe('TechnicalService.fetchSnapshot', () => {
     jest.restoreAllMocks();
   });
 
-  it('should calculate indicators from coinmarketcap price series', async () => {
-    const prices: Array<{ quote: { USD: { price: number } } }> = [];
+  it('should calculate indicators from coingecko market chart data', async () => {
+    const prices: Array<[number, number]> = [];
     for (let i = 0; i < 160; i += 1) {
-      prices.push({
-        quote: {
-          USD: {
-            price: 1 + i * 0.01,
-          },
-        },
-      });
+      prices.push([1711929600000 + i * 3600000, 1 + i * 0.01]);
     }
 
     global.fetch = jest.fn(async () => {
       return {
         ok: true,
-        json: async () => ({ data: { quotes: prices } }),
+        json: async () => ({ prices }),
       } as Response;
     }) as typeof fetch;
 
     const service = new TechnicalService();
-    const snapshot = await service.fetchSnapshot(identity, '24h');
+    const snapshot = await service.fetchSnapshot(identity, '30d');
 
     expect(snapshot.degraded).toBe(false);
-    expect(snapshot.sourceUsed).toBe('coinmarketcap');
+    expect(snapshot.sourceUsed).toBe('coingecko');
     expect(snapshot.rsi.value).not.toBeNull();
     expect(snapshot.macd.macd).not.toBeNull();
     expect(snapshot.ma.ma99).not.toBeNull();

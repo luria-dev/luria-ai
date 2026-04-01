@@ -2,7 +2,7 @@ import { PromptBundle, stringifyPromptContext } from './prompt-types';
 
 export type IntentPromptContext = {
   query: string;
-  defaultTimeWindow: '24h' | '7d';
+  defaultTimeWindow: '24h' | '7d' | '30d';
   preferredChain: string | null;
   interactionTypes: readonly string[];
   taskTypes: readonly string[];
@@ -57,7 +57,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
         interactionType: 'follow_up',
         taskType: 'single_asset',
         targets: ['ETH'],
-        timeWindow: '24h',
+        timeWindow: '30d',
         outputGoal: 'strategy',
         needsClarification: false,
       },
@@ -71,7 +71,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
         interactionType: 'new_query',
         taskType: 'multi_asset',
         targets: ['BTC', 'ETH', 'SOL'],
-        timeWindow: '24h',
+        timeWindow: '30d',
         outputGoal: 'strategy',
         needsClarification: false,
       },
@@ -127,7 +127,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
       '- interactionType: new_query | follow_up | selection_reply',
       '- taskType: single_asset | multi_asset | comparison',
       '- targets: up to 5 asset mentions/symbols',
-      '- timeWindow: 24h | 7d | unspecified',
+      '- timeWindow: 24h | 7d | 30d | unspecified',
       '- outputGoal: analysis | strategy | comparison',
       '- needsClarification: boolean',
       'Decision principles:',

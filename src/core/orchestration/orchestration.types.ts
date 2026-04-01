@@ -29,7 +29,7 @@ export type RequestState = {
   mode: RequestMode;
   lang: RequestLang;
   query: string;
-  timeWindow: '24h' | '7d';
+  timeWindow: '24h' | '7d' | '30d';
   preferredChain: string | null;
   targets: RequestTarget[];
   candidates: AnalyzeCandidate[];
@@ -52,7 +52,7 @@ export type AnalyzeJobData = {
   mode: RequestMode;
   lang: RequestLang;
   query: string;
-  timeWindow: '24h' | '7d';
+  timeWindow: '24h' | '7d' | '30d';
   preferredChain: string | null;
   targets: AnalyzeJobTarget[];
   intentHint?: IntentOutput;

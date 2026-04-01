@@ -32,7 +32,7 @@ export class TechnicalService {
 
   async fetchSnapshot(
     identity: AnalyzeIdentity,
-    timeWindow: '24h' | '7d' = '24h',
+    timeWindow: '24h' | '7d' | '30d' = '30d',
   ): Promise<TechnicalSnapshot> {
     const prices = await this.fetchPriceSeries(identity, timeWindow);
     if (prices.length < 35) {
@@ -112,7 +112,7 @@ export class TechnicalService {
 
   private async fetchPriceSeries(
     identity: AnalyzeIdentity,
-    timeWindow: '24h' | '7d',
+    timeWindow: '24h' | '7d' | '30d',
   ): Promise<number[]> {
     const coinId = await this.resolveCoinId(identity);
     if (!coinId) {
@@ -121,10 +121,12 @@ export class TechnicalService {
 
     const baseUrl = this.getApiBaseUrl();
     const timeoutMs = this.getTimeoutMs();
-    const days =
-      timeWindow === '24h'
-        ? Number(process.env.COINGECKO_TECH_DAYS_24H ?? 14)
-        : Number(process.env.COINGECKO_TECH_DAYS_7D ?? 30);
+    const daysByWindow = {
+      '24h': Number(process.env.COINGECKO_TECH_DAYS_24H ?? 14),
+      '7d': Number(process.env.COINGECKO_TECH_DAYS_7D ?? 30),
+      '30d': Number(process.env.COINGECKO_TECH_DAYS_30D ?? 90),
+    } as const;
+    const days = daysByWindow[timeWindow];
 
     const params = new URLSearchParams({
       vs_currency: 'usd',

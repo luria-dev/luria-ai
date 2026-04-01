@@ -85,7 +85,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     lang: RequestLang;
     requestId: string | null;
     threadId: string | null;
-    timeWindow: '24h' | '7d';
+    timeWindow: '24h' | '7d' | '30d';
     preferredChain: string | null;
   }): Promise<AnalyzeSubmitResponse> {
     const message = input.message.trim();
@@ -210,7 +210,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     query: string,
     mode: RequestMode,
     lang: RequestLang,
-    timeWindow: '24h' | '7d' = '24h',
+    timeWindow: '24h' | '7d' | '30d' = '30d',
     preferredChain: string | null = null,
     threadId: string | null = null,
   ): Promise<AnalyzeBootstrapResponse> {
@@ -295,7 +295,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
   async bootstrapInstant(
     query: string,
     lang: RequestLang,
-    timeWindow: '24h' | '7d' = '24h',
+    timeWindow: '24h' | '7d' | '30d' = '30d',
     preferredChain: string | null = null,
     threadId: string | null = null,
   ): Promise<AnalyzeBootstrapResponse> {
@@ -360,7 +360,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     requestId: string,
     threadId: string,
     message: string,
-    timeWindow: '24h' | '7d',
+    timeWindow: '24h' | '7d' | '30d',
     lang: RequestLang,
   ): Promise<void> {
     try {
@@ -730,7 +730,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     query: string,
     preferredChain: string | null,
     identity: AnalyzeIdentity,
-    timeWindow: '24h' | '7d',
+    timeWindow: '24h' | '7d' | '30d',
     intent: IntentOutput,
     intentMeta: WorkflowNodeExecutionMeta | undefined,
     renderPerTargetReport: boolean,

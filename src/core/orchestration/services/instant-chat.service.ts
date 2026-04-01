@@ -24,7 +24,7 @@ type InstantReplyResult = {
   usedLocalFallback: boolean;
   model: string;
   resolvedIdentity: AnalyzeIdentity | null;
-  timeWindow: '24h' | '7d';
+  timeWindow: '24h' | '7d' | '30d';
   goal: string | null;
   scope: InstantTurnContext['scope'];
 };
@@ -32,7 +32,7 @@ type InstantReplyResult = {
 type InstantDataContext = {
   snapshotText: string | null;
   resolvedIdentity: AnalyzeIdentity | null;
-  timeWindow: '24h' | '7d';
+  timeWindow: '24h' | '7d' | '30d';
   goal: string | null;
   scope: InstantTurnContext['scope'];
   needsClarification: boolean;
@@ -42,7 +42,7 @@ const instantIntentSchema = z.object({
   assetDecision: z.enum(['explicit', 'inherit', 'none']),
   assetQuery: z.string().nullable(),
   timeDecision: z.enum(['explicit', 'inherit', 'none']),
-  resolvedTimeWindow: z.enum(['24h', '7d']).nullable(),
+  resolvedTimeWindow: z.enum(['24h', '7d', '30d']).nullable(),
   goalDecision: z.enum(['explicit', 'inherit', 'none']),
   resolvedGoal: z.string().nullable(),
   scopeDecision: z.enum(['explicit', 'inherit', 'none']),
@@ -93,7 +93,7 @@ export class InstantChatService {
     threadId: string;
     requestId: string;
     message: string;
-    timeWindow: '24h' | '7d';
+    timeWindow: '24h' | '7d' | '30d';
     lang: RequestLang;
   }): Promise<InstantReplyResult> {
     const conversation = this.conversations.get(input.threadId);
@@ -266,7 +266,7 @@ export class InstantChatService {
 
   private async resolveIntentState(
     message: string,
-    fallbackTimeWindow: '24h' | '7d',
+    fallbackTimeWindow: '24h' | '7d' | '30d',
     conversation: InstantConversationState | null,
   ): Promise<InstantIntentState> {
     const fallback = this.buildFallbackIntentState(conversation);
@@ -448,7 +448,7 @@ export class InstantChatService {
 
   private async collectDataContext(
     message: string,
-    fallbackTimeWindow: '24h' | '7d',
+    fallbackTimeWindow: '24h' | '7d' | '30d',
     conversation: InstantConversationState | null,
     intentState: InstantIntentState,
   ): Promise<InstantDataContext> {
@@ -512,10 +512,10 @@ export class InstantChatService {
   }
 
   private resolveTimeWindow(
-    fallbackTimeWindow: '24h' | '7d',
+    fallbackTimeWindow: '24h' | '7d' | '30d',
     conversation: InstantConversationState | null,
     intentState: InstantIntentState,
-  ): '24h' | '7d' {
+  ): '24h' | '7d' | '30d' {
     if (
       intentState.timeDecision === 'explicit' &&
       intentState.resolvedTimeWindow
@@ -658,7 +658,7 @@ export class InstantChatService {
     identity: AnalyzeIdentity,
     market: PriceSnapshot,
     technical: TechnicalSnapshot,
-    timeWindow: '24h' | '7d',
+    timeWindow: '24h' | '7d' | '30d',
   ): string {
     const lines = [
       'Asset resolution: resolved',

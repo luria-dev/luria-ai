@@ -31,7 +31,7 @@ import { DataCacheService } from '../../data/cache/data-cache.service';
 type ExecuteInput = {
   plan: PlanOutput;
   identity: AnalyzeIdentity;
-  timeWindow: '24h' | '7d';
+  timeWindow: '24h' | '7d' | '30d';
   objective: IntentOutput['objective'];
   taskType: IntentOutput['taskType'];
 };
@@ -367,6 +367,18 @@ export class DataExecutorNodeService {
         targetAnnualPct: null,
         isDynamic: false,
       },
+      burns: {
+        totalBurnAmount: null,
+        recentBurns: [],
+      },
+      buybacks: {
+        totalBuybackAmount: null,
+        recentBuybacks: [],
+      },
+      fundraising: {
+        totalRaised: null,
+        rounds: [],
+      },
       evidence: [],
       evidenceConflicts: [],
       asOf: new Date().toISOString(),
@@ -466,7 +478,7 @@ export class DataExecutorNodeService {
   }
 
   private buildFallbackOnchain(
-    window: '24h' | '7d',
+    window: '24h' | '7d' | '30d',
     reason: string,
   ): CexNetflowSnapshot {
     return {

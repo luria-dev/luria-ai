@@ -159,6 +159,32 @@ export class ReportNodeService {
           .slice(0, 5)
           .map((item) => `[${item.severity.toUpperCase()}] ${item.code}: ${item.message}`),
       },
+      anomalies: {
+        priceVolatility: this.detectPriceAnomaly(price, input.intent.language === 'zh'),
+        socialActivity: this.detectSocialAnomaly(sentiment, input.intent.language === 'zh'),
+        onchainFlow: this.detectOnchainAnomaly(onchain, input.intent.language === 'zh'),
+        riskEscalation: this.detectRiskEscalation(input.alerts, input.intent.language === 'zh'),
+      },
+      tokenomics: {
+        burns: {
+          totalBurnAmount: tokenomics.burns.totalBurnAmount,
+          recentBurnCount: tokenomics.burns.recentBurns.length,
+          latestBurnDate: tokenomics.burns.recentBurns[0]?.burnDate ?? null,
+          burnSummary: this.buildBurnSummary(tokenomics.burns, input.intent.language === 'zh'),
+        },
+        buybacks: {
+          totalBuybackAmount: tokenomics.buybacks.totalBuybackAmount,
+          recentBuybackCount: tokenomics.buybacks.recentBuybacks.length,
+          latestBuybackDate: tokenomics.buybacks.recentBuybacks[0]?.buybackDate ?? null,
+          buybackSummary: this.buildBuybackSummary(tokenomics.buybacks, input.intent.language === 'zh'),
+        },
+        fundraising: {
+          totalRaised: tokenomics.fundraising.totalRaised,
+          roundCount: tokenomics.fundraising.rounds.length,
+          latestRoundDate: tokenomics.fundraising.rounds[0]?.fundingDate ?? null,
+          fundraisingSummary: this.buildFundraisingSummary(tokenomics.fundraising, input.intent.language === 'zh'),
+        },
+      },
     };
     const prompts = buildReportPrompts(context);
 
@@ -754,5 +780,221 @@ export class ReportNodeService {
 
   private isHiddenReportText(value: string): boolean {
     return this.hiddenReportPatterns.some((pattern) => pattern.test(value));
+  }
+
+  private detectPriceAnomaly(
+    price: ExecutionOutput['data']['market']['price'],
+    isZh: boolean,
+  ): string | null {
+    const change24h = price.change24hPct;
+    const change7d = price.change7dPct;
+
+    if (change24h === null && change7d === null) return null;
+
+    const anomalies: string[] = [];
+
+    if (change24h !== null && Math.abs(change24h) > 5) {
+      anomalies.push(
+        isZh
+          ? `24h 波动幅度达 ${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}%，属异常波动`
+          : `24h move of ${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}% is unusually large`,
+      );
+    }
+
+    if (change7d !== null && Math.abs(change7d) > 10) {
+      anomalies.push(
+        isZh
+          ? `7d 累积变动 ${change7d >= 0 ? '+' : ''}${change7d.toFixed(2)}%，趋势仍在发展中`
+          : `7d cumulative move of ${change7d >= 0 ? '+' : ''}${change7d.toFixed(2)}% shows trend in progress`,
+      );
+    }
+
+    if (change24h !== null && change7d !== null) {
+      if (change24h > 0 && change7d < 0) {
+        anomalies.push(
+          isZh
+            ? '短线反弹但周线仍承压，两者方向分歧需关注'
+            : 'Short-term bounce while weekly trend remains under pressure — directional divergence worth watching',
+        );
+      }
+      if (change24h < 0 && change7d > 0) {
+        anomalies.push(
+          isZh
+            ? '短线回调但中线仍偏强，回调性质待确认'
+            : 'Short-term pullback but medium-term still constructive — pullback nature needs confirmation',
+        );
+      }
+    }
+
+    return anomalies.length > 0 ? anomalies.join('；') : null;
+  }
+
+  private detectSocialAnomaly(
+    sentiment: ExecutionOutput['data']['sentiment'],
+    isZh: boolean,
+  ): string | null {
+    const socialVolume = sentiment.socialVolume;
+    const sentimentScore = sentiment.sentimentScore;
+
+    if (socialVolume === null && sentimentScore === null) return null;
+
+    const anomalies: string[] = [];
+
+    if (socialVolume !== null) {
+      if (socialVolume > 5000) {
+        anomalies.push(
+          isZh
+            ? `社交讨论热度极高（${socialVolume.toLocaleString()}），需关注是否过度狂热`
+            : `Social discussion volume is very high (${socialVolume.toLocaleString()}) — monitor for signs of excess euphoria`,
+        );
+      } else if (socialVolume < 100) {
+        anomalies.push(
+          isZh
+            ? `社交讨论热度极低（${socialVolume.toLocaleString()}），市场关注度不足`
+            : `Social discussion volume is very low (${socialVolume.toLocaleString()}) — market attention is minimal`,
+        );
+      }
+    }
+
+    if (sentimentScore !== null) {
+      if (sentimentScore > 50) {
+        anomalies.push(
+          isZh
+            ? `情绪读数极度乐观（${sentimentScore.toFixed(1)}），反向风险上升`
+            : `Sentiment reading is extremely bullish (${sentimentScore.toFixed(1)}) — reverse risk is elevated`,
+        );
+      } else if (sentimentScore < -50) {
+        anomalies.push(
+          isZh
+            ? `情绪读数极度悲观（${sentimentScore.toFixed(1)}），可能存在过度恐慌`
+            : `Sentiment reading is extremely bearish (${sentimentScore.toFixed(1)}) — possible excessive fear`,
+        );
+      }
+    }
+
+    return anomalies.length > 0 ? anomalies.join('；') : null;
+  }
+
+  private detectOnchainAnomaly(
+    onchain: ExecutionOutput['data']['onchain']['cexNetflow'],
+    isZh: boolean,
+  ): string | null {
+    const netflow = onchain.netflowUsd;
+
+    if (netflow === null) return null;
+
+    const anomalies: string[] = [];
+
+    if (netflow < -1_000_000_000) {
+      anomalies.push(
+        isZh
+          ? `净流出规模达 ${this.fmt(netflow)}，表明资金持续撤离交易所，潜在买入信号`
+          : `Net outflow of ${this.fmt(netflow)} indicates funds are leaving exchanges — potential buy signal`,
+      );
+    } else if (netflow > 1_000_000_000) {
+      anomalies.push(
+        isZh
+          ? `净流入规模达 ${this.fmt(netflow)}，资金流入交易所可能反映抛压增加`
+          : `Net inflow of ${this.fmt(netflow)} suggests increased selling pressure as funds move to exchanges`,
+      );
+    }
+
+    return anomalies.length > 0 ? anomalies.join('；') : null;
+  }
+
+  private detectRiskEscalation(
+    alerts: AlertsSnapshot,
+    isZh: boolean,
+  ): string | null {
+    const anomalies: string[] = [];
+
+    if (alerts.riskState === 'emergency' || alerts.riskState === 'elevated') {
+      anomalies.push(
+        isZh
+          ? `风险状态升至 ${alerts.riskState}，需提高警觉`
+          : `Risk state elevated to ${alerts.riskState} — stay alert`,
+      );
+    }
+
+    if (alerts.alertLevel === 'red') {
+      anomalies.push(
+        isZh
+          ? `预警等级达红色，存在 ${alerts.items.filter(i => i.severity === 'critical').length} 条严重告警`
+          : `Alert level is red with ${alerts.items.filter(i => i.severity === 'critical').length} critical alerts`,
+      );
+    } else if (alerts.alertLevel === 'yellow' && alerts.items.filter(i => i.severity === 'warning').length > 3) {
+      anomalies.push(
+        isZh
+          ? `预警等级为黄色，存在 ${alerts.items.filter(i => i.severity === 'warning').length} 条警告项，较平常偏多`
+          : `Alert level is yellow with ${alerts.items.filter(i => i.severity === 'warning').length} warning items — above normal`,
+      );
+    }
+
+    return anomalies.length > 0 ? anomalies.join('；') : null;
+  }
+
+  private buildBurnSummary(
+    burns: { totalBurnAmount: number | null; recentBurns: any[] },
+    isZh: boolean,
+  ): string | null {
+    if (burns.totalBurnAmount === null && burns.recentBurns.length === 0) {
+      return null;
+    }
+
+    const recent = burns.recentBurns.slice(0, 3);
+    if (recent.length === 0) {
+      return null;
+    }
+
+    const burnType = recent[0]?.burnType ?? 'UNKNOWN';
+    const frequency = recent.length >= 3 ? (isZh ? '持续' : 'ongoing') : (isZh ? '偶发' : 'sporadic');
+
+    return isZh
+      ? `${frequency}${burnType === 'PROGRAMMATIC' ? '程序化' : '手动'}销毁，最近 ${recent.length} 次销毁共 ${this.fmt(recent.reduce((sum, b) => sum + (b.amount ?? 0), 0))} 枚`
+      : `${frequency} ${burnType.toLowerCase()} burns, recent ${recent.length} events totaling ${this.fmt(recent.reduce((sum, b) => sum + (b.amount ?? 0), 0))} tokens`;
+  }
+
+  private buildBuybackSummary(
+    buybacks: { totalBuybackAmount: number | null; recentBuybacks: any[] },
+    isZh: boolean,
+  ): string | null {
+    if (buybacks.totalBuybackAmount === null && buybacks.recentBuybacks.length === 0) {
+      return null;
+    }
+
+    const recent = buybacks.recentBuybacks.slice(0, 3);
+    if (recent.length === 0) {
+      return null;
+    }
+
+    const totalSpent = recent.reduce((sum, b) => sum + (b.spentAmount ?? 0), 0);
+    const totalTokens = recent.reduce((sum, b) => sum + (b.tokenAmount ?? 0), 0);
+    const avgPrice = totalTokens > 0 ? totalSpent / totalTokens : 0;
+
+    return isZh
+      ? `最近 ${recent.length} 次回购共花费 ${this.fmt(totalSpent)} USDC，回购 ${this.fmt(totalTokens)} 枚，均价约 $${avgPrice.toFixed(2)}`
+      : `Recent ${recent.length} buybacks spent ${this.fmt(totalSpent)} USDC for ${this.fmt(totalTokens)} tokens, avg ~$${avgPrice.toFixed(2)}`;
+  }
+
+  private buildFundraisingSummary(
+    fundraising: { totalRaised: number | null; rounds: any[] },
+    isZh: boolean,
+  ): string | null {
+    if (fundraising.totalRaised === null && fundraising.rounds.length === 0) {
+      return null;
+    }
+
+    const rounds = fundraising.rounds.slice(0, 3);
+    if (rounds.length === 0) {
+      return null;
+    }
+
+    const latestRound = rounds[0];
+    const roundName = latestRound?.roundName ?? 'Unknown';
+    const amount = latestRound?.amountRaised ?? 0;
+
+    return isZh
+      ? `共 ${rounds.length} 轮融资，最近一轮为 ${roundName}，融资 ${this.fmt(amount)}`
+      : `${rounds.length} funding rounds, latest: ${roundName} raised ${this.fmt(amount)}`;
   }
 }
