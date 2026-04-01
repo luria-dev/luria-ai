@@ -14,7 +14,8 @@
 /.tmp
 fortest
 
-
+.env.dev
+.env.prod
 *.log
 pnpm-debug.log*
 npm-debug.log*
