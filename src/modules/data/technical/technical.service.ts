@@ -132,8 +132,10 @@ export class TechnicalService {
     const params = new URLSearchParams({
       vs_currency: 'usd',
       days: String(days),
-      interval: 'hourly',
     });
+    if (days <= 30) {
+      params.set('interval', 'hourly');
+    }
 
     const body = await this.fetchJson<CoinGeckoMarketChartResponse>(
       `${baseUrl}/coins/${encodeURIComponent(coinId)}/market_chart?${params.toString()}`,

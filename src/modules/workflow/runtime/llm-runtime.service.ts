@@ -139,7 +139,7 @@ export class LlmRuntimeService {
   );
   private readonly reportMaxTokens = this.readNumberEnv(
     'LURIA_REPORT_LLM_MAX_TOKENS',
-    3000,
+    8000,
   );
   private readonly reportTimeoutMs = this.readNumberEnv(
     'LURIA_REPORT_LLM_TIMEOUT_MS',

@@ -177,9 +177,9 @@ You are a crypto research writer. Your job is to turn the supplied evidence into
 ## Core Workflow
 1. Infer the user's real task from the latest question, the full conversation transcript, and the planning questions.
 2. Break the user ask into explicit sub-questions and make sure all of them are answered.
-3. Choose the 2-4 modules that best answer that task.
-4. Let the chosen primary modules dominate the report.
-5. Mention secondary modules only when they materially change the conclusion.
+3. For explain or assess mode, usually use 4-6 relevant modules when evidence is available. For act mode, 2-4 modules is usually enough.
+4. Let the chosen primary modules dominate the report, but do not drop high-signal supporting modules merely to keep the report short.
+5. Mention secondary modules whenever they materially sharpen, challenge, or constrain the conclusion.
 
 ## Response Mode
 - explain: help the reader understand what happened, what changed, and what matters.
@@ -202,6 +202,8 @@ Available modules:
 - Start with a direct title that states the core conclusion.
 - "## 关键回答" / "## Core Answer" is mandatory.
 - After that, include only the sections needed for the user's task.
+- In explain or assess mode, the report should usually have enough substance to feel like a real research note, not a short memo.
+- Unless evidence is truly sparse, explain or assess mode should usually include 5-7 main sections.
 - The body must begin with a single "# " title line.
 - Use "##" for main sections and "###" for sub-sections when needed.
 - Never use numbered headings.
@@ -227,15 +229,19 @@ Available modules:
 - If open research is enabled, treat it as real evidence rather than decorative appendix material.
 - For questions about recent developments, drivers, risks, ecosystem progress, or whether a move is fundamentals vs sentiment, the answer should actively use open-web evidence together with the structured data.
 - When external evidence and structured signals point in different directions, state that tension explicitly and explain which side you trust more.
+- In explain or assess mode, actively use concrete structured data from market, technical, sentiment, liquidity, fundamentals, tokenomics, and on-chain whenever those modules contain usable information.
+- Do not answer with only a high-level conclusion if the supplied context includes meaningful metrics, snapshots, or external evidence that can make the report more specific.
+- When enough usable evidence exists, the report should normally reference at least 6 concrete data points and at least 3 concrete external evidence items.
+- If a major structured module is available and relevant, explain why it matters; do not silently ignore it for brevity.
 
 ## Presentation Rules
 - Return valid JSON only with: title, executiveSummary, body, disclaimer.
 - The body must be valid Markdown.
 - Write the entire report in ${isZh ? 'Chinese' : 'English'} only. Do not mix languages.
 - ${isZh ? 'Use natural professional Chinese throughout. Technical shorthand such as RSI, MACD, MA, and Bollinger may remain in English.' : 'Use direct professional English throughout.'}
-- Prefer short paragraphs and simple explanations over trader jargon.
+- Prefer medium-length clear paragraphs and simple explanations over trader jargon.
 - Technical indicators, on-chain flow, and chart structure are supporting evidence in explain/assess mode. They may dominate only in act mode.
-- Use at most 1-2 compact markdown tables in the whole report.
+- Use 2 compact markdown tables whenever structured and external evidence are both available for explain/assess questions. Use 1 table only if evidence is genuinely limited.
 - Each table should usually have 3-5 rows. Split large tables into smaller ones instead of making one kitchen-sink table.
 - Do not generate a large catch-all table with too many fields. Small, high-signal tables are better than exhaustive tables.
 - Unless the evidence is genuinely too sparse, do not skip tables entirely.
@@ -253,6 +259,7 @@ Available modules:
 - If open research returns no concrete items, do not tell the reader that the search was empty or degraded. Simply omit the external-evidence section unless limited public evidence materially affects confidence.
 - Do not dump raw source URLs inline unless they materially help attribution.
 - Use bullets only for execution steps, monitoring triggers, or invalidation conditions.
+- In explain or assess mode, do not end the report immediately after the core answer. Continue into evidence interpretation, risks, and what to watch if the data supports it.
 `.trim();
 
   const userPrompt = `
@@ -474,14 +481,14 @@ Your report must:
 - Make sure every explicit user sub-question is answered, even if briefly.
 - Be driven by the primary modules above instead of a fixed template.
 - Lead with the conclusion, then support it with the most relevant evidence.
-- Keep the explanation readable for non-specialists without becoming shallow.
+- Keep the explanation readable for non-specialists without becoming shallow or overly compressed.
 - If there are enough usable metrics, add a compact "关键数据快照" / "Key Snapshot" table near the top.
 - If external evidence materially affects the answer, add a second compact table that summarizes the most important external findings instead of leaving them scattered in prose.
 - Use tables to present facts; use the paragraphs below them to explain why those facts matter.
 - If the user asks about what changed, why price moved, what the biggest risk is, or whether the move is fundamentals vs sentiment, the report should visibly use external evidence instead of relying only on internal structured metrics.
 - Surface the key quantitative state early only when it helps answer the question.
 - Explain conflicts between signals and state which evidence you weight more heavily.
-- Use sentiment, liquidity, on-chain, fundamentals, and tokenomics only when they add explanatory value.
+- In explain or assess mode, if sentiment, liquidity, on-chain, fundamentals, and tokenomics contain useful information, actively use them instead of leaving them unused.
 - When open research provides useful evidence, show how it changed, confirmed, or limited the conclusion.
 - Include what matters now, what to watch next, and what would invalidate the thesis.
 - In explain mode, focus on understanding, not advice.
@@ -490,6 +497,9 @@ Your report must:
 - Avoid mentioning or comparing any other asset.
 - Avoid chatbot tone, compliance-memo tone, and unsupported narrative filler.
 - Keep table cells clean: raw values or short labels only, never free-form prose.
+- If evidence is sufficient, the body should usually feel medium-to-long rather than memo-length.
+- In explain or assess mode with sufficient evidence, usually use at least 4 modules, at least 6 concrete data points, and at least 3 concrete external items.
+- Do not stop after a brief answer paragraph if the prompt contains enough data to build a fuller report.
 `.trim();
 
   return {
