@@ -203,7 +203,18 @@ Available modules:
 - "## 关键回答" / "## Core Answer" is mandatory.
 - After that, include only the sections needed for the user's task.
 - In explain or assess mode, the report should usually have enough substance to feel like a real research note, not a short memo.
-- Unless evidence is truly sparse, explain or assess mode should usually include 5-7 main sections.
+- Unless evidence is truly sparse, explain or assess mode should usually include a fuller research structure.
+- For explain or assess mode with sufficient evidence, usually include these main sections in this order:
+  1. 关键回答 / Core Answer
+  2. 关键数据快照 / Key Snapshot
+  3. 外部证据摘要 or 核心驱动与风险 / External Evidence Summary or Drivers and Risks
+  4. 市场情况 / Market State
+  5. 基本面 / Fundamentals
+  6. 情绪与资金面 / Sentiment and Positioning
+  7. 技术与结构 / Technical Structure
+  8. 风险提示 / Risk Warnings
+  9. 接下来观察什么 / What To Watch Next
+- If one of the sections above is genuinely unsupported by evidence, omit it explicitly and let the nearby sections absorb the explanation. Do not compress the whole report just because one section is weak.
 - The body must begin with a single "# " title line.
 - Use "##" for main sections and "###" for sub-sections when needed.
 - Never use numbered headings.
@@ -231,7 +242,7 @@ Available modules:
 - When external evidence and structured signals point in different directions, state that tension explicitly and explain which side you trust more.
 - In explain or assess mode, actively use concrete structured data from market, technical, sentiment, liquidity, fundamentals, tokenomics, and on-chain whenever those modules contain usable information.
 - Do not answer with only a high-level conclusion if the supplied context includes meaningful metrics, snapshots, or external evidence that can make the report more specific.
-- When enough usable evidence exists, the report should normally reference at least 6 concrete data points and at least 3 concrete external evidence items.
+- When enough usable evidence exists, the report should reference multiple concrete structured metrics and multiple concrete external evidence items rather than staying abstract.
 - If a major structured module is available and relevant, explain why it matters; do not silently ignore it for brevity.
 
 ## Presentation Rules
@@ -241,7 +252,9 @@ Available modules:
 - ${isZh ? 'Use natural professional Chinese throughout. Technical shorthand such as RSI, MACD, MA, and Bollinger may remain in English.' : 'Use direct professional English throughout.'}
 - Prefer medium-length clear paragraphs and simple explanations over trader jargon.
 - Technical indicators, on-chain flow, and chart structure are supporting evidence in explain/assess mode. They may dominate only in act mode.
-- Use 2 compact markdown tables whenever structured and external evidence are both available for explain/assess questions. Use 1 table only if evidence is genuinely limited.
+- Use multiple compact markdown tables whenever they help readability in explain/assess mode.
+- When structured and external evidence are both available, usually include at least 2 tables.
+- If the evidence naturally fits 3 or more small tables, that is allowed. Do not force everything into only 1-2 tables.
 - Each table should usually have 3-5 rows. Split large tables into smaller ones instead of making one kitchen-sink table.
 - Do not generate a large catch-all table with too many fields. Small, high-signal tables are better than exhaustive tables.
 - Unless the evidence is genuinely too sparse, do not skip tables entirely.
@@ -260,6 +273,7 @@ Available modules:
 - Do not dump raw source URLs inline unless they materially help attribution.
 - Use bullets only for execution steps, monitoring triggers, or invalidation conditions.
 - In explain or assess mode, do not end the report immediately after the core answer. Continue into evidence interpretation, risks, and what to watch if the data supports it.
+- In explain or assess mode, prioritize completeness of reasoning over brevity when the supplied evidence is rich.
 `.trim();
 
   const userPrompt = `
@@ -498,7 +512,9 @@ Your report must:
 - Avoid chatbot tone, compliance-memo tone, and unsupported narrative filler.
 - Keep table cells clean: raw values or short labels only, never free-form prose.
 - If evidence is sufficient, the body should usually feel medium-to-long rather than memo-length.
-- In explain or assess mode with sufficient evidence, usually use at least 4 modules, at least 6 concrete data points, and at least 3 concrete external items.
+- In explain or assess mode with sufficient evidence, usually use at least 4 modules and multiple concrete external items.
+- Allow the report to use 2, 3, or more compact tables when that improves clarity.
+- Do not collapse market, fundamentals, sentiment, technical, and risk into one short section if they each contain meaningful evidence.
 - Do not stop after a brief answer paragraph if the prompt contains enough data to build a fuller report.
 `.trim();
 
