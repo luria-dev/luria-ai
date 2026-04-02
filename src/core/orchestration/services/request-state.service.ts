@@ -16,9 +16,12 @@ import type {
 @Injectable()
 export class RequestStateService implements OnModuleDestroy {
   private readonly logger = new Logger(RequestStateService.name);
+  private readonly redisEnabled =
+    (process.env.REDIS_ENABLED ?? 'true').toLowerCase() !== 'false';
   private readonly redisPersistenceEnabled =
+    this.redisEnabled &&
     (process.env.REQUEST_STATE_REDIS_ENABLED ?? 'true').toLowerCase() !==
-    'false';
+      'false';
   private readonly requests = new Map<string, RequestState>();
   private readonly requestEventStreams = new Map<
     string,

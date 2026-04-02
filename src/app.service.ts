@@ -10,6 +10,9 @@ type ServiceStatus = {
 
 @Injectable()
 export class AppService {
+  private readonly redisEnabled =
+    (process.env.REDIS_ENABLED ?? 'true').toLowerCase() !== 'false';
+
   async getHealth() {
     const processStatus: ServiceStatus = { status: 'up' };
     const postgres = await this.checkPostgres();
@@ -50,6 +53,10 @@ export class AppService {
   }
 
   private async checkRedis(): Promise<ServiceStatus> {
+    if (!this.redisEnabled) {
+      return { status: 'up' };
+    }
+
     const host = process.env.REDIS_HOST ?? '127.0.0.1';
     const port = Number(process.env.REDIS_PORT ?? 6379);
     const password = process.env.REDIS_PASSWORD;

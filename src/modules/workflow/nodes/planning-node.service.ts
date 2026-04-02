@@ -378,26 +378,38 @@ export class PlanningNodeService {
     normalizedQuery: string,
   ): string[] {
     const symbol = (intent.entities[0] ?? '').toLowerCase();
-    const sources = ['coindesk.com', 'rootdata.com'];
+    const sources = [
+      'coindesk.com',
+      'theblock.co',
+      'decrypt.co',
+      'blockworks.co',
+      'rootdata.com',
+    ];
 
     if (symbol === 'eth' || normalizedQuery.includes('l2')) {
-      sources.push('blog.ethereum.org', 'ethereum.org', 'l2beat.com');
+      sources.push(
+        'blog.ethereum.org',
+        'ethereum.org',
+        'l2beat.com',
+        'optimism.io',
+        'arbitrum.io',
+      );
     }
     if (symbol === 'btc') {
-      sources.push('bitcoin.org');
+      sources.push('bitcoin.org', 'bitcoinmagazine.com');
     }
     if (symbol === 'sol') {
-      sources.push('solana.com');
+      sources.push('solana.com', 'solana.org', 'solana.foundation');
     }
     if (
       normalizedQuery.includes('fundraising') ||
       normalizedQuery.includes('融资') ||
       normalizedQuery.includes('基本面')
     ) {
-      sources.push('theblock.co');
+      sources.push('messari.io');
     }
 
-    return [...new Set(sources)].slice(0, 5);
+    return [...new Set(sources)].slice(0, 8);
   }
 
   private buildFallbackRequirements(

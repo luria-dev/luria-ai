@@ -4,7 +4,7 @@ import type { RequestMode } from '../orchestration.types';
 
 export type InstantTurnContext = {
   assetMention: string | null;
-  timeWindow: '24h' | '7d' | '30d' | null;
+  timeWindow: '24h' | '7d' | '30d' | '60d' | null;
   goal: string | null;
   scope: 'single_asset' | 'comparison' | 'multi_asset' | 'general' | null;
 };
@@ -22,7 +22,7 @@ export type InstantConversationState = {
   mode: Extract<RequestMode, 'instant'>;
   lastResponseId: string | null;
   lastResolvedIdentity: AnalyzeIdentity | null;
-  lastTimeWindow: '24h' | '7d' | '30d' | null;
+  lastTimeWindow: '24h' | '7d' | '30d' | '60d' | null;
   lastGoal: string | null;
   lastScope: InstantTurnContext['scope'];
   turns: InstantConversationTurn[];
@@ -49,7 +49,7 @@ export class InstantConversationService {
     assistantMessage: string;
     responseId: string | null;
     resolvedIdentity?: AnalyzeIdentity | null;
-    timeWindow?: '24h' | '7d' | '30d' | null;
+    timeWindow?: '24h' | '7d' | '30d' | '60d' | null;
     goal?: string | null;
     scope?: InstantTurnContext['scope'];
     turnContext?: Partial<InstantTurnContext>;

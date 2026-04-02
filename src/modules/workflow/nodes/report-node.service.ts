@@ -1395,11 +1395,6 @@ export class ReportNodeService {
               onchain.signal,
               isZh ? '看资金是否真的跟进' : 'Checks whether flows confirm the move',
             ],
-            [
-              isZh ? '外部检索' : 'Open Web',
-              openResearch?.enabled ? (isZh ? '已开启' : 'Enabled') : isZh ? '未开启' : 'Off',
-              openResearch?.takeaways?.[0] ?? (isZh ? '暂无额外线索' : 'No extra clue'),
-            ],
           ]
         : [
             [
@@ -1435,6 +1430,18 @@ export class ReportNodeService {
                   : `Score ${sentiment.sentimentScore.toFixed(1)}`,
             ],
           ];
+
+    if (
+      responseMode === 'explain' &&
+      openResearch?.enabled &&
+      openResearch.takeaways.length > 0
+    ) {
+      rows.push([
+        isZh ? '外部证据' : 'Open Web',
+        isZh ? '已纳入' : 'Included',
+        openResearch.takeaways[0],
+      ]);
+    }
 
     return [
       `| ${isZh ? '维度' : 'Dimension'} | ${isZh ? '当前值' : 'Current'} | ${isZh ? '怎么理解' : 'What It Means'} |`,

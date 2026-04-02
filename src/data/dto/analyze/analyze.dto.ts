@@ -24,8 +24,8 @@ export class AnalyzeDto {
   request_id?: string;
 
   @IsOptional()
-  @IsIn(['24h', '7d', '30d'])
-  time_window?: '24h' | '7d' | '30d';
+  @IsIn(['24h', '7d', '30d', '60d'])
+  time_window?: '24h' | '7d' | '30d' | '60d';
 
   @IsOptional()
   @IsString()

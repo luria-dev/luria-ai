@@ -71,7 +71,7 @@ export const intentLlmOutputSchema = z.object({
   interactionType: intentInteractionTypeSchema,
   taskType: intentTaskTypeSchema,
   targets: z.array(z.string().min(1)).max(5).default([]),
-  timeWindow: z.enum(['24h', '7d', '30d', 'unspecified']),
+  timeWindow: z.enum(['24h', '7d', '30d', '60d', 'unspecified']),
   outputGoal: intentOutputGoalSchema,
   needsClarification: z.boolean(),
 });
@@ -86,7 +86,7 @@ export const intentOutputSchema = z.object({
   needsClarification: z.boolean(),
   objective: intentObjectiveSchema,
   sentimentBias: intentSentimentSchema,
-  timeWindow: z.enum(['24h', '7d', '30d']),
+  timeWindow: z.enum(['24h', '7d', '30d', '60d']),
   entities: z.array(z.string()).default([]),
   entityMentions: z.array(z.string()).default([]),
   symbols: z.array(z.string()).default([]),

@@ -26,7 +26,7 @@ export type ReadThroughCacheInput<T> = {
   identity: AnalyzeIdentity;
   objective: IntentOutput['objective'];
   taskType: IntentOutput['taskType'];
-  timeWindow?: '24h' | '7d' | '30d';
+  timeWindow?: '24h' | '7d' | '30d' | '60d';
   source: string;
   fetcher: () => Promise<T>;
 };

@@ -205,6 +205,13 @@ Available modules:
 - The body must begin with a single "# " title line.
 - Use "##" for main sections and "###" for sub-sections when needed.
 - Never use numbered headings.
+- When the supplied evidence contains at least 3 usable structured metrics, include 1 compact markdown table near the top. Do not default to a pure long-form essay.
+- That first table should usually be "关键数据快照" / "Key Snapshot".
+- If open research or news evidence materially affects the answer, prefer a second compact table instead of burying those points in prose.
+- Choose the second table by question type:
+  - recent developments / ecosystem progress -> "外部证据摘要" / "External Evidence Summary"
+  - drivers / biggest risks / investability -> "核心驱动与风险" / "Drivers and Risks"
+  - fundamentals vs sentiment -> "基本面 vs 情绪证据" / "Fundamentals vs Sentiment"
 - For explain mode, prefer sections such as recent changes, what is driving it, what it means, and what remains uncertain.
 - For assess mode, prefer sections such as core reasons, biggest risks, and how to think about the investment case now.
 - Include "## 交易计划" / "## Trade Setup" only when responseMode = act or the user is explicitly asking what to do now, timing, entry, exit, support, or resistance.
@@ -217,6 +224,9 @@ Available modules:
 - Do not introduce unsupported timeframes such as quarter, cycle, or long term.
 - If evidence is missing, state that directly instead of filling gaps with speculation.
 - Respect the supplied verdict and discuss only the target symbol.
+- If open research is enabled, treat it as real evidence rather than decorative appendix material.
+- For questions about recent developments, drivers, risks, ecosystem progress, or whether a move is fundamentals vs sentiment, the answer should actively use open-web evidence together with the structured data.
+- When external evidence and structured signals point in different directions, state that tension explicitly and explain which side you trust more.
 
 ## Presentation Rules
 - Return valid JSON only with: title, executiveSummary, body, disclaimer.
@@ -227,14 +237,20 @@ Available modules:
 - Technical indicators, on-chain flow, and chart structure are supporting evidence in explain/assess mode. They may dominate only in act mode.
 - Use at most 1-2 compact markdown tables in the whole report.
 - Each table should usually have 3-5 rows. Split large tables into smaller ones instead of making one kitchen-sink table.
-- If no table materially helps readability, do not force one.
+- Do not generate a large catch-all table with too many fields. Small, high-signal tables are better than exhaustive tables.
+- Unless the evidence is genuinely too sparse, do not skip tables entirely.
+- Table cells should stay short and factual. Use prose below the table to explain why the numbers or sources matter.
+- Prefer tables such as "关键数据快照 / Key Snapshot", "核心驱动与风险 / Drivers and Risks", or "外部证据摘要 / External Evidence Summary" over generic kitchen-sink tables.
+- Keep tables narrow: usually 3 columns, sometimes 2, rarely 4. Do not turn them into dashboards.
 - Omit rows whose values are unavailable. Do not print null, N/A, or placeholders.
 - Keep prices, percentages, and large values consistently formatted.
 - Each section must explain what the evidence means, not just list numbers.
 - If technical analysis is used, interpret RSI, MACD, MA alignment, Bollinger position, and structure from the supplied numbers.
 - If tokenomics is used, interpret inflation, burns, buybacks, and fundraising in supply / dilution terms.
 - Do not default to support/resistance, trigger levels, or execution checklists unless responseMode = act.
-- If open research is enabled and useful, include a short "### 外部检索补充" / "### Open-Web Evidence" subsection that states which sources changed or sharpened the conclusion.
+- If open research is enabled and useful, include a short "### 外部检索补充" / "### Open-Web Evidence" subsection that states which sources changed, confirmed, challenged, or sharpened the conclusion.
+- When open research is enabled, do not mention it only in passing. Use 2-4 concrete external items if they materially help answer the user question.
+- If open research returns no concrete items, do not tell the reader that the search was empty or degraded. Simply omit the external-evidence section unless limited public evidence materially affects confidence.
 - Do not dump raw source URLs inline unless they materially help attribution.
 - Use bullets only for execution steps, monitoring triggers, or invalidation conditions.
 `.trim();
@@ -459,6 +475,10 @@ Your report must:
 - Be driven by the primary modules above instead of a fixed template.
 - Lead with the conclusion, then support it with the most relevant evidence.
 - Keep the explanation readable for non-specialists without becoming shallow.
+- If there are enough usable metrics, add a compact "关键数据快照" / "Key Snapshot" table near the top.
+- If external evidence materially affects the answer, add a second compact table that summarizes the most important external findings instead of leaving them scattered in prose.
+- Use tables to present facts; use the paragraphs below them to explain why those facts matter.
+- If the user asks about what changed, why price moved, what the biggest risk is, or whether the move is fundamentals vs sentiment, the report should visibly use external evidence instead of relying only on internal structured metrics.
 - Surface the key quantitative state early only when it helps answer the question.
 - Explain conflicts between signals and state which evidence you weight more heavily.
 - Use sentiment, liquidity, on-chain, fundamentals, and tokenomics only when they add explanatory value.
@@ -626,12 +646,13 @@ function renderOpenResearch(
   }
 
   if (context.recentEvidence.openResearch.items.length === 0) {
-    parts.push(
-      isZh
-        ? '• 开放检索已开启，但当前没有可用条目。'
-        : '• Open research was enabled, but no usable items were returned.',
-    );
-    return parts.join('\n');
+    const contextLine =
+      context.recentEvidence.openResearch.topics.length > 0
+        ? isZh
+          ? `Focus: ${context.recentEvidence.openResearch.topics.join(' | ')}`
+          : `Focus: ${context.recentEvidence.openResearch.topics.join(' | ')}`
+        : '';
+    return [parts.join('\n'), contextLine].filter(Boolean).join('\n');
   }
 
   parts.push(

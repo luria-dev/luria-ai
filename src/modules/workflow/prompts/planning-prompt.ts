@@ -93,6 +93,8 @@ export function buildPlanningPrompts(
       'openResearch shape is: {"enabled":true,"depth":"heavy","priority":"high","reason":"...","topics":["..."],"goals":["..."],"preferredSources":["coindesk.com","rootdata.com"],"mustUseInReport":true}',
       'For analyze tasks, openResearch should normally be enabled and should usually use depth = "standard" or "heavy".',
       'Enable openResearch aggressively when the user asks about recent developments, drivers, causes, risks, comparisons between explanations, ecosystem progress, or any answer that benefits from current public materials.',
+      'For recent developments, ecosystem progress, driver analysis, risk analysis, or fundamentals-vs-sentiment questions, openResearch should usually be "heavy", not "light".',
+      'When openResearch is enabled for those questions, plan it as evidence the final report is expected to actively use, not optional decoration.',
       'When openResearch is enabled, preferredSources should lean toward official project sources plus 2-4 reputable public sources when applicable.',
       isComparison
         ? 'For comparison, analysisQuestions must cover: upside drivers, downside drivers, risk blockers, and data-quality impact for fair cross-target ranking.'

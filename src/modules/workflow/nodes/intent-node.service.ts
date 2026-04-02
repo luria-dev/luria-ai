@@ -17,7 +17,7 @@ import type { IntentPromptContext } from '../prompts';
 
 type ParseIntentInput = {
   query: string;
-  timeWindow: '24h' | '7d' | '30d';
+  timeWindow: '24h' | '7d' | '30d' | '60d';
   preferredChain: string | null;
   language?: IntentOutput['language'];
   memo?: IntentMemoSnapshot | null;
@@ -329,6 +329,17 @@ export class IntentNodeService {
     query: string,
   ): IntentLlmOutput['timeWindow'] {
     const normalized = query.toLowerCase();
+    if (
+      normalized.includes('60天') ||
+      normalized.includes('60d') ||
+      normalized.includes('60 day') ||
+      normalized.includes('60 days') ||
+      normalized.includes('两个月') ||
+      normalized.includes('二个月') ||
+      normalized.includes('2 months')
+    ) {
+      return '60d';
+    }
     if (
       normalized.includes('30天') ||
       normalized.includes('30d') ||

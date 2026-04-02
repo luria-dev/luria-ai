@@ -18,9 +18,12 @@ export type DeepConversationState = {
 @Injectable()
 export class DeepConversationService implements OnModuleDestroy {
   private readonly conversations = new Map<string, DeepConversationState>();
+  private readonly redisEnabled =
+    (process.env.REDIS_ENABLED ?? 'true').toLowerCase() !== 'false';
   private readonly redisPersistenceEnabled =
+    this.redisEnabled &&
     (process.env.DEEP_CONVERSATION_REDIS_ENABLED ?? 'true').toLowerCase() !==
-    'false';
+      'false';
   private readonly redisKeyPrefix =
     process.env.DEEP_CONVERSATION_KEY_PREFIX ?? 'luria:deep-conversation:';
   private readonly redisTtlSeconds = Number(

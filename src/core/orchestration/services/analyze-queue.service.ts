@@ -5,7 +5,10 @@ import type { AnalyzeJobData, QueueMode } from '../orchestration.types';
 @Injectable()
 export class AnalyzeQueueService {
   private readonly logger = new Logger(AnalyzeQueueService.name);
+  private readonly redisEnabled =
+    (process.env.REDIS_ENABLED ?? 'true').toLowerCase() !== 'false';
   private readonly queueAllowed =
+    this.redisEnabled &&
     (process.env.ANALYZE_QUEUE_ENABLED ?? 'true').toLowerCase() !== 'false';
   private queue?: Queue<AnalyzeJobData>;
   private worker?: Worker<AnalyzeJobData>;

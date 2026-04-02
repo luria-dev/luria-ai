@@ -32,7 +32,7 @@ export class TechnicalService {
 
   async fetchSnapshot(
     identity: AnalyzeIdentity,
-    timeWindow: '24h' | '7d' | '30d' = '30d',
+    timeWindow: '24h' | '7d' | '30d' | '60d' = '60d',
   ): Promise<TechnicalSnapshot> {
     const prices = await this.fetchPriceSeries(identity, timeWindow);
     if (prices.length < 35) {
@@ -112,7 +112,7 @@ export class TechnicalService {
 
   private async fetchPriceSeries(
     identity: AnalyzeIdentity,
-    timeWindow: '24h' | '7d' | '30d',
+    timeWindow: '24h' | '7d' | '30d' | '60d',
   ): Promise<number[]> {
     const coinId = await this.resolveCoinId(identity);
     if (!coinId) {
@@ -125,6 +125,7 @@ export class TechnicalService {
       '24h': Number(process.env.COINGECKO_TECH_DAYS_24H ?? 14),
       '7d': Number(process.env.COINGECKO_TECH_DAYS_7D ?? 30),
       '30d': Number(process.env.COINGECKO_TECH_DAYS_30D ?? 90),
+      '60d': Number(process.env.COINGECKO_TECH_DAYS_60D ?? 180),
     } as const;
     const days = daysByWindow[timeWindow];
 

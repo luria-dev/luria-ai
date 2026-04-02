@@ -55,7 +55,7 @@ export class OnchainService {
 
   async fetchCexNetflow(
     identity: AnalyzeIdentity,
-    window: '24h' | '7d' | '30d',
+    window: '24h' | '7d' | '30d' | '60d',
   ): Promise<CexNetflowSnapshot> {
     const result = await this.fetchFromSantiment(identity, window);
     if (result) {
@@ -78,7 +78,7 @@ export class OnchainService {
 
   private async fetchFromSantiment(
     identity: AnalyzeIdentity,
-    window: '24h' | '7d' | '30d',
+    window: '24h' | '7d' | '30d' | '60d',
   ): Promise<CexNetflowSnapshot | null> {
     const apiKey = process.env.SANTIMENT_ACCESS_KEY;
     if (!apiKey?.trim()) {
@@ -102,7 +102,7 @@ export class OnchainService {
       return this.toSnapshot(window, primary, primaryWindow);
     }
 
-    const fallbackWindow = this.buildHistoricalFallbackWindow();
+    const fallbackWindow = this.buildHistoricalFallbackWindow(window);
     const fallback = await this.fetchSantimentWindow(
       endpoint,
       apiKey.trim(),
@@ -120,7 +120,9 @@ export class OnchainService {
     return null;
   }
 
-  private buildPrimaryWindow(window: '24h' | '7d' | '30d'): SantimentWindow {
+  private buildPrimaryWindow(
+    window: '24h' | '7d' | '30d' | '60d',
+  ): SantimentWindow {
     if (window === '24h') {
       return {
         from: 'utc_now-24h',
@@ -139,6 +141,15 @@ export class OnchainService {
       };
     }
 
+    if (window === '60d') {
+      return {
+        from: 'utc_now-60d',
+        to: 'utc_now',
+        interval: '1d',
+        degraded: false,
+      };
+    }
+
     return {
       from: 'utc_now-30d',
       to: 'utc_now',
@@ -147,7 +158,19 @@ export class OnchainService {
     };
   }
 
-  private buildHistoricalFallbackWindow(): SantimentWindow {
+  private buildHistoricalFallbackWindow(
+    window: '24h' | '7d' | '30d' | '60d',
+  ): SantimentWindow {
+    if (window === '60d') {
+      return {
+        from: 'utc_now-120d',
+        to: 'utc_now-60d',
+        interval: '1d',
+        degraded: true,
+        degradeReason: 'CEX_NETFLOW_DELAYED_60D_FALLBACK',
+      };
+    }
+
     return {
       from: 'utc_now-60d',
       to: 'utc_now-30d',
@@ -237,7 +260,7 @@ export class OnchainService {
   }
 
   private toSnapshot(
-    window: '24h' | '7d' | '30d',
+    window: '24h' | '7d' | '30d' | '60d',
     data: {
       inflowUsd: number | null;
       outflowUsd: number | null;

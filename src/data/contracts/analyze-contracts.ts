@@ -318,7 +318,7 @@ export type ExchangeNetflow = {
 };
 
 export type CexNetflowSnapshot = {
-  window: '24h' | '7d' | '30d';
+  window: '24h' | '7d' | '30d' | '60d';
   inflowUsd: number | null;
   outflowUsd: number | null;
   netflowUsd: number | null;

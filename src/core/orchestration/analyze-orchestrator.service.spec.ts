@@ -446,7 +446,7 @@ describe('AnalyzeOrchestratorService', () => {
     );
   });
 
-  it('bootstrap should default to 30d when timeWindow is omitted', async () => {
+  it('bootstrap should default to 60d when timeWindow is omitted', async () => {
     const { service } = createService();
     const enqueueSpy = jest
       .spyOn(service as any, 'enqueueAnalyzeJob')
@@ -457,7 +457,7 @@ describe('AnalyzeOrchestratorService', () => {
     expect(enqueueSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'ETH',
-        timeWindow: '30d',
+        timeWindow: '60d',
       }),
     );
   });

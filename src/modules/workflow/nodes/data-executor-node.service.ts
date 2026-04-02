@@ -34,7 +34,7 @@ type ExecuteInput = {
   query: string;
   plan: PlanOutput;
   identity: AnalyzeIdentity;
-  timeWindow: '24h' | '7d' | '30d';
+  timeWindow: '24h' | '7d' | '30d' | '60d';
   objective: IntentOutput['objective'];
   taskType: IntentOutput['taskType'];
 };
@@ -524,7 +524,7 @@ export class DataExecutorNodeService {
   }
 
   private buildFallbackOnchain(
-    window: '24h' | '7d' | '30d',
+    window: '24h' | '7d' | '30d' | '60d',
     reason: string,
   ): CexNetflowSnapshot {
     return {

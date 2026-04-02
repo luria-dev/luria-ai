@@ -2,7 +2,7 @@ import { PromptBundle, stringifyPromptContext } from './prompt-types';
 
 export type IntentPromptContext = {
   query: string;
-  defaultTimeWindow: '24h' | '7d' | '30d';
+  defaultTimeWindow: '24h' | '7d' | '30d' | '60d';
   preferredChain: string | null;
   interactionTypes: readonly string[];
   taskTypes: readonly string[];
@@ -46,18 +46,18 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
         userMessage: 'What about ETH then?',
         memo: {
           lastIntent: {
-            taskType: 'single_asset',
-            outputGoal: 'strategy',
-            entities: ['BTC'],
-          },
-          lastResolvedTargets: [{ symbol: 'BTC', chain: 'bitcoin' }],
+        taskType: 'single_asset',
+        outputGoal: 'strategy',
+        entities: ['BTC'],
+      },
+      lastResolvedTargets: [{ symbol: 'BTC', chain: 'bitcoin' }],
         },
       },
       output: {
         interactionType: 'follow_up',
         taskType: 'single_asset',
         targets: ['ETH'],
-        timeWindow: '30d',
+        timeWindow: '60d',
         outputGoal: 'strategy',
         needsClarification: false,
       },
@@ -71,7 +71,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
         interactionType: 'new_query',
         taskType: 'multi_asset',
         targets: ['BTC', 'ETH', 'SOL'],
-        timeWindow: '30d',
+        timeWindow: '60d',
         outputGoal: 'strategy',
         needsClarification: false,
       },
@@ -127,7 +127,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
       '- interactionType: new_query | follow_up | selection_reply',
       '- taskType: single_asset | multi_asset | comparison',
       '- targets: up to 5 asset mentions/symbols',
-      '- timeWindow: 24h | 7d | 30d | unspecified',
+      '- timeWindow: 24h | 7d | 30d | 60d | unspecified',
       '- outputGoal: analysis | strategy | comparison',
       '- needsClarification: boolean',
       'Decision principles:',

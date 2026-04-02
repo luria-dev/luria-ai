@@ -54,8 +54,8 @@ export class AnalyzeController {
 
   private resolveTimeWindow(
     _message: string,
-    requested?: '24h' | '7d' | '30d',
-  ): '24h' | '7d' | '30d' {
-    return requested ?? '30d';
+    requested?: '24h' | '7d' | '30d' | '60d',
+  ): '24h' | '7d' | '30d' | '60d' {
+    return requested ?? '60d';
   }
 }

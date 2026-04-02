@@ -24,15 +24,17 @@ export class OpenResearchService {
   }
 
   async fetchSnapshot(input: OpenResearchInput): Promise<OpenResearchSnapshot> {
-    const topicLimit = input.depth === 'heavy' ? 8 : input.depth === 'standard' ? 6 : 4;
+    const topicLimit =
+      input.depth === 'heavy' ? 8 : input.depth === 'standard' ? 6 : 4;
     const goalLimit = input.depth === 'heavy' ? 6 : 4;
-    const itemLimit = input.depth === 'heavy' ? 12 : input.depth === 'standard' ? 8 : 5;
+    const itemLimit =
+      input.depth === 'heavy' ? 12 : input.depth === 'standard' ? 8 : 5;
     const takeawayLimit = input.depth === 'heavy' ? 5 : 4;
     const topics = this.unique(input.topics).slice(0, topicLimit);
     const goals = this.unique(input.goals).slice(0, goalLimit);
     const queries = this.buildQueries(input, topics);
     const results = await Promise.all(
-      queries.map((query) => this.searchDuckDuckGo(query)),
+      queries.map((query) => this.searchOpenWeb(query, input.depth)),
     );
     const items = this.rankItems(
       this.uniqueItems(results.flat()),
@@ -58,20 +60,33 @@ export class OpenResearchService {
   }
 
   private buildQueries(input: OpenResearchInput, topics: string[]): string[] {
-    const base = `${input.identity.symbol} ${input.query}`.trim();
-    const queries = [base];
+    const assetTerms = this.buildAssetTerms(input.identity);
+    const canonicalAsset = assetTerms[0] ?? input.identity.symbol;
+    const normalizedQuery = this.normalizeQuery(input.query, input.identity);
+    const focusedQueries = this.buildFocusedQueries(
+      input,
+      topics,
+      canonicalAsset,
+    );
+    const queries = [
+      `${canonicalAsset} ${normalizedQuery}`.trim(),
+      ...assetTerms
+        .slice(1)
+        .map((term) => `${term} ${normalizedQuery}`.trim()),
+      ...focusedQueries,
+    ];
 
     const topicQueryLimit =
-      input.depth === 'heavy' ? 4 : input.depth === 'standard' ? 3 : 2;
-    const goalQueryLimit = input.depth === 'heavy' ? 3 : 2;
-    const sourceQueryLimit = input.depth === 'heavy' ? 3 : 2;
+      input.depth === 'heavy' ? 6 : input.depth === 'standard' ? 4 : 2;
+    const goalQueryLimit = input.depth === 'heavy' ? 4 : 2;
+    const sourceQueryLimit = input.depth === 'heavy' ? 6 : 4;
 
     for (const topic of topics.slice(0, topicQueryLimit)) {
-      queries.push(`${input.identity.symbol} ${topic}`.trim());
+      queries.push(`${canonicalAsset} ${this.normalizeTopic(topic)}`.trim());
     }
 
     for (const goal of input.goals.slice(0, goalQueryLimit)) {
-      queries.push(`${input.identity.symbol} ${goal}`.trim());
+      queries.push(`${canonicalAsset} ${this.normalizeTopic(goal)}`.trim());
     }
 
     for (const source of input.preferredSources.slice(0, sourceQueryLimit)) {
@@ -79,9 +94,14 @@ export class OpenResearchService {
       if (!site) {
         continue;
       }
-      queries.push(`${base} site:${site}`);
+      queries.push(`${canonicalAsset} ${normalizedQuery} site:${site}`.trim());
       if (topics[0]) {
-        queries.push(`${input.identity.symbol} ${topics[0]} site:${site}`.trim());
+        queries.push(
+          `${canonicalAsset} ${this.normalizeTopic(topics[0])} site:${site}`.trim(),
+        );
+      }
+      if (focusedQueries[0]) {
+        queries.push(`${focusedQueries[0]} site:${site}`.trim());
       }
     }
 
@@ -89,12 +109,45 @@ export class OpenResearchService {
       queries
         .map((query) => query.replace(/\s+/g, ' ').trim())
         .filter((query) => query.length > 0),
-    ).slice(0, input.depth === 'heavy' ? 8 : input.depth === 'standard' ? 5 : 3);
+    ).slice(
+      0,
+      input.depth === 'heavy' ? 12 : input.depth === 'standard' ? 8 : 4,
+    );
   }
 
-  private async searchDuckDuckGo(query: string): Promise<OpenResearchItem[]> {
+  private async searchOpenWeb(
+    query: string,
+    depth: OpenResearchInput['depth'],
+  ): Promise<OpenResearchItem[]> {
+    const htmlItems = await this.searchDuckDuckGoHtml(query);
+    if (htmlItems.length > 0 && depth === 'light') {
+      return htmlItems;
+    }
+
+    const liteItems =
+      depth === 'light' && htmlItems.length > 0
+        ? []
+        : await this.searchDuckDuckGoLite(query);
+
+    return this.uniqueItems([...htmlItems, ...liteItems]);
+  }
+
+  private async searchDuckDuckGoHtml(query: string): Promise<OpenResearchItem[]> {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const timeoutMs = Number(process.env.OPEN_RESEARCH_TIMEOUT_MS ?? 5000);
+    return this.fetchSearchPage(url, query, this.parseDuckDuckGoHtmlResults);
+  }
+
+  private async searchDuckDuckGoLite(query: string): Promise<OpenResearchItem[]> {
+    const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
+    return this.fetchSearchPage(url, query, this.parseDuckDuckGoLiteResults);
+  }
+
+  private async fetchSearchPage(
+    url: string,
+    query: string,
+    parser: (html: string, query: string) => OpenResearchItem[],
+  ): Promise<OpenResearchItem[]> {
+    const timeoutMs = Number(process.env.OPEN_RESEARCH_TIMEOUT_MS ?? 8000);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -115,7 +168,7 @@ export class OpenResearchService {
       }
 
       const html = await response.text();
-      return this.parseDuckDuckGoResults(html, query);
+      return parser.call(this, html, query);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
@@ -127,13 +180,46 @@ export class OpenResearchService {
     }
   }
 
-  private parseDuckDuckGoResults(
+  private parseDuckDuckGoHtmlResults(
     html: string,
     query: string,
   ): OpenResearchItem[] {
     const normalized = html.replace(/\n/g, ' ');
     const regex =
       /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>(?:[\s\S]*?<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>|[\s\S]*?<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>)([\s\S]*?)(?:<\/a>|<\/div>)/gi;
+    const items: OpenResearchItem[] = [];
+
+    let match = regex.exec(normalized);
+    while (match) {
+      const rawUrl = this.decodeHtml(match[1] ?? '');
+      const title = this.cleanHtml(match[2] ?? '');
+      const snippet = this.cleanHtml(match[3] ?? '');
+      const url = this.normalizeDuckDuckGoUrl(rawUrl);
+      const source = this.extractSource(url);
+      if (title && url) {
+        items.push({
+          title,
+          url,
+          source,
+          snippet: snippet || null,
+          publishedAt: null,
+          topic: this.detectTopic(query, title, snippet),
+          relevanceScore: this.computeRelevance(query, title, snippet),
+        });
+      }
+      match = regex.exec(normalized);
+    }
+
+    return items;
+  }
+
+  private parseDuckDuckGoLiteResults(
+    html: string,
+    query: string,
+  ): OpenResearchItem[] {
+    const normalized = html.replace(/\n/g, ' ');
+    const regex =
+      /<a[^>]*href="([^"]+)"[^>]*class="[^"]*result-link[^"]*"[^>]*>(.*?)<\/a>(?:[\s\S]*?<td[^>]*class="[^"]*result-snippet[^"]*"[^>]*>([\s\S]*?)<\/td>)?/gi;
     const items: OpenResearchItem[] = [];
 
     let match = regex.exec(normalized);
@@ -278,6 +364,117 @@ export class OpenResearchService {
 
   private unique(items: string[]): string[] {
     return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+  }
+
+  private buildAssetTerms(identity: AnalyzeIdentity): string[] {
+    const symbol = identity.symbol.trim().toUpperCase();
+    if (symbol === 'ETH') {
+      return ['ethereum', 'eth', 'ether'];
+    }
+    if (symbol === 'BTC') {
+      return ['bitcoin', 'btc'];
+    }
+    if (symbol === 'SOL') {
+      return ['solana', 'sol'];
+    }
+    return [identity.symbol.trim().toLowerCase()];
+  }
+
+  private normalizeQuery(query: string, identity: AnalyzeIdentity): string {
+    return query
+      .replace(new RegExp(identity.symbol, 'ig'), ' ')
+      .replace(/[，。！？、,.!?/]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  private normalizeTopic(value: string): string {
+    return value
+      .replace(/[，。！？、,.!?/]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  private buildFocusedQueries(
+    input: OpenResearchInput,
+    topics: string[],
+    canonicalAsset: string,
+  ): string[] {
+    const raw = `${input.query} ${topics.join(' ')} ${input.goals.join(' ')}`.toLowerCase();
+    const queries: string[] = [];
+
+    if (
+      raw.includes('l2') ||
+      raw.includes('layer 2') ||
+      raw.includes('二层')
+    ) {
+      queries.push(
+        `${canonicalAsset} layer 2 progress`,
+        `${canonicalAsset} l2 ecosystem`,
+        `${canonicalAsset} scaling roadmap`,
+        `${canonicalAsset} rollup adoption`,
+      );
+    }
+
+    if (
+      raw.includes('最近') ||
+      raw.includes('最新') ||
+      raw.includes('recent') ||
+      raw.includes('developments') ||
+      raw.includes('progress')
+    ) {
+      queries.push(
+        `${canonicalAsset} recent developments`,
+        `${canonicalAsset} latest ecosystem progress`,
+        `${canonicalAsset} upgrade roadmap`,
+      );
+    }
+
+    if (
+      raw.includes('驱动') ||
+      raw.includes('driver') ||
+      raw.includes('drivers') ||
+      raw.includes('why')
+    ) {
+      queries.push(
+        `${canonicalAsset} price drivers`,
+        `${canonicalAsset} catalysts`,
+      );
+    }
+
+    if (raw.includes('风险') || raw.includes('risk')) {
+      queries.push(
+        `${canonicalAsset} biggest risks`,
+        `${canonicalAsset} concerns adoption liquidity regulation`,
+      );
+    }
+
+    if (
+      raw.includes('基本面') ||
+      raw.includes('fundamental') ||
+      raw.includes('情绪') ||
+      raw.includes('sentiment')
+    ) {
+      queries.push(
+        `${canonicalAsset} fundamentals adoption activity`,
+        `${canonicalAsset} sentiment speculation`,
+      );
+    }
+
+    if (
+      raw.includes('投资') ||
+      raw.includes('invest') ||
+      raw.includes('investable')
+    ) {
+      queries.push(
+        `${canonicalAsset} investment case`,
+        `${canonicalAsset} adoption growth usage`,
+      );
+    }
+
+    return this.unique(queries);
   }
 
   private normalizePreferredSource(source: string): string {
