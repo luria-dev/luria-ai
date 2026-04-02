@@ -42,10 +42,22 @@ describe('AnalyzeOrchestratorService', () => {
     identity,
     intent,
     plan: {
-      objective: 'market_overview',
+      taskDisposition: 'analyze',
+      primaryIntent: 'Understand what is happening around ETH.',
+      subTasks: ['what matters for ETH right now'],
+      responseMode: 'explain',
       analysisQuestions: ['What is the current market regime?'],
       requirements: [],
-      comparisonMode: 'none',
+      openResearch: {
+        enabled: true,
+        depth: 'standard',
+        priority: 'low',
+        reason: 'Not needed in this test.',
+        topics: [],
+        goals: [],
+        preferredSources: [],
+        mustUseInReport: true,
+      },
     },
     execution: {
       identity,
@@ -97,6 +109,18 @@ describe('AnalyzeOrchestratorService', () => {
             currentAnnualPct: null,
             targetAnnualPct: null,
             isDynamic: false,
+          },
+          burns: {
+            totalBurnAmount: null,
+            recentBurns: [],
+          },
+          buybacks: {
+            totalBuybackAmount: null,
+            recentBuybacks: [],
+          },
+          fundraising: {
+            totalRaised: null,
+            rounds: [],
           },
           evidence: [],
           evidenceConflicts: [],

@@ -32,6 +32,7 @@ type RunWorkflowInput = {
   intent: IntentOutput;
   intentMeta?: WorkflowNodeExecutionMeta;
   renderPerTargetReport?: boolean;
+  conversationHistoryRaw?: string | null;
 };
 
 export type WorkflowStage =
@@ -60,9 +61,8 @@ const WorkflowStateAnnotation = Annotation.Root({
   timeWindow: Annotation<'24h' | '7d' | '30d'>(),
   preferredChain: Annotation<string | null>(),
   identity: Annotation<AnalyzeIdentity>(),
-  onStageEvent: Annotation<
-    ((event: WorkflowStageEvent) => void) | undefined
-  >(),
+  conversationHistoryRaw: Annotation<string | null>(),
+  onStageEvent: Annotation<((event: WorkflowStageEvent) => void) | undefined>(),
   intent: Annotation<IntentOutput>(),
   plan: Annotation<PlanOutput>(),
   execution: Annotation<ExecutionOutput>(),
@@ -129,6 +129,7 @@ export class AnalysisWorkflowService {
       timeWindow: input.timeWindow,
       preferredChain: input.preferredChain,
       identity: input.identity,
+      conversationHistoryRaw: input.conversationHistoryRaw ?? null,
       intent: input.intent,
       renderPerTargetReport: input.renderPerTargetReport ?? true,
       nodeStatus: input.intentMeta
@@ -167,7 +168,8 @@ export class AnalysisWorkflowService {
       state.report as ReportOutput | undefined,
       'report',
     );
-    const nodeStatus = (state.nodeStatus as WorkflowNodeStatus | undefined) ?? {};
+    const nodeStatus =
+      (state.nodeStatus as WorkflowNodeStatus | undefined) ?? {};
 
     return {
       ...execution.data,
@@ -203,6 +205,58 @@ export class AnalysisWorkflowService {
           },
         };
       })
+      .addNode('n_direct_response', async (state: WorkflowGraphState) => {
+        this.emitStageEvent(state, 'report', 'started');
+        const intent = this.requireField(
+          state.intent as IntentOutput | undefined,
+          'intent',
+        );
+        const plan = this.requireField(
+          state.plan as PlanOutput | undefined,
+          'plan',
+        );
+        const execution = this.buildPlaceholderExecution(state.identity);
+        const alerts = this.buildPlaceholderAlerts();
+        const analysis = this.buildPlaceholderAnalysis(plan, intent);
+        const strategy = this.analysisNode.toStrategySnapshot(analysis);
+        const report = this.reportNode.buildTaskDispositionOnly({
+          intent,
+          plan,
+          symbol: state.identity.symbol,
+        });
+        this.emitStageEvent(state, 'report', 'completed');
+        return {
+          execution,
+          alerts,
+          analysis,
+          strategy,
+          report,
+          nodeStatus: {
+            ...((state.nodeStatus as WorkflowNodeStatus | undefined) ?? {}),
+            executor: {
+              llmStatus: 'skipped',
+              attempts: 0,
+              schemaCorrection: false,
+              failureReason: `task_disposition_${plan.taskDisposition}`,
+              model: null,
+            },
+            analysis: {
+              llmStatus: 'skipped',
+              attempts: 0,
+              schemaCorrection: false,
+              failureReason: `task_disposition_${plan.taskDisposition}`,
+              model: null,
+            },
+            report: {
+              llmStatus: 'skipped',
+              attempts: 0,
+              schemaCorrection: false,
+              failureReason: `task_disposition_${plan.taskDisposition}`,
+              model: null,
+            },
+          },
+        };
+      })
       .addNode('n_executor', async (state: WorkflowGraphState) => {
         this.emitStageEvent(state, 'executor', 'started');
         const intent = this.requireField(
@@ -214,6 +268,7 @@ export class AnalysisWorkflowService {
           'plan',
         );
         const execution = await this.dataExecutorNode.execute({
+          query: state.query,
           plan,
           identity: state.identity,
           timeWindow: state.timeWindow,
@@ -290,6 +345,10 @@ export class AnalysisWorkflowService {
           state.execution as ExecutionOutput | undefined,
           'execution',
         );
+        const plan = this.requireField(
+          state.plan as PlanOutput | undefined,
+          'plan',
+        );
         const analysis = this.requireField(
           state.analysis as AnalysisOutput | undefined,
           'analysis',
@@ -305,9 +364,13 @@ export class AnalysisWorkflowService {
           return {
             report: this.reportNode.buildDeterministicOnly({
               intent,
+              plan,
               execution,
               analysis,
               alerts,
+              conversationHistoryRaw:
+                (state.conversationHistoryRaw as string | null | undefined) ??
+                null,
             }),
             nodeStatus: {
               ...((state.nodeStatus as WorkflowNodeStatus | undefined) ?? {}),
@@ -323,9 +386,12 @@ export class AnalysisWorkflowService {
         }
         const reportResult = await this.reportNode.renderWithMeta({
           intent,
+          plan,
           execution,
           analysis,
           alerts,
+          conversationHistoryRaw:
+            (state.conversationHistoryRaw as string | null | undefined) ?? null,
         });
         this.emitStageEvent(state, 'report', 'completed');
         return {
@@ -337,12 +403,303 @@ export class AnalysisWorkflowService {
         };
       })
       .addEdge(START, 'n_planning')
-      .addEdge('n_planning', 'n_executor')
+      .addConditionalEdges('n_planning', (state: WorkflowGraphState) => {
+        const plan = state.plan as PlanOutput | undefined;
+        return plan?.taskDisposition === 'analyze'
+          ? 'n_executor'
+          : 'n_direct_response';
+      })
       .addEdge('n_executor', 'n_risk_strategy')
       .addEdge('n_risk_strategy', 'n_analysis')
       .addEdge('n_analysis', 'n_report')
+      .addEdge('n_direct_response', END)
       .addEdge('n_report', END)
       .compile();
+  }
+
+  private buildPlaceholderExecution(identity: AnalyzeIdentity): ExecutionOutput {
+    const asOf = new Date().toISOString();
+    return {
+      identity,
+      requestedTypes: [],
+      executedTypes: [],
+      collectedTypes: [],
+      degradedNodes: [],
+      missingEvidence: [],
+      routing: [],
+      asOf,
+      data: {
+        market: {
+          price: {
+            priceUsd: null,
+            change1hPct: null,
+            change24hPct: null,
+            change7dPct: null,
+            change30dPct: null,
+            marketCapRank: null,
+            circulatingSupply: null,
+            totalSupply: null,
+            maxSupply: null,
+            fdvUsd: null,
+            totalVolume24hUsd: null,
+            athUsd: null,
+            atlUsd: null,
+            athChangePct: null,
+            atlChangePct: null,
+            asOf,
+            sourceUsed: 'market_unavailable',
+            degraded: true,
+            degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+          },
+        },
+        news: {
+          items: [],
+          asOf,
+          sourceUsed: 'news_unavailable',
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+        openResearch: {
+          enabled: false,
+          query: '',
+          topics: [],
+          goals: [],
+          preferredSources: [],
+          takeaways: [],
+          items: [],
+          asOf,
+          sourceUsed: [],
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+        tokenomics: {
+          allocation: {
+            teamPct: null,
+            investorPct: null,
+            communityPct: null,
+            foundationPct: null,
+          },
+          vestingSchedule: [],
+          inflationRate: {
+            currentAnnualPct: null,
+            targetAnnualPct: null,
+            isDynamic: false,
+          },
+          burns: {
+            totalBurnAmount: null,
+            recentBurns: [],
+          },
+          buybacks: {
+            totalBuybackAmount: null,
+            recentBuybacks: [],
+          },
+          fundraising: {
+            totalRaised: null,
+            rounds: [],
+          },
+          evidence: [],
+          evidenceConflicts: [],
+          asOf,
+          sourceUsed: [],
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+          tokenomicsEvidenceInsufficient: true,
+        },
+        fundamentals: {
+          profile: {
+            projectId: null,
+            name: identity.symbol,
+            tokenSymbol: identity.symbol,
+            oneLiner: null,
+            description: null,
+            establishmentDate: null,
+            active: null,
+            logoUrl: null,
+            rootdataUrl: null,
+            tags: [],
+            totalFundingUsd: null,
+            rtScore: null,
+            tvlScore: null,
+            similarProjects: [],
+          },
+          team: [],
+          investors: [],
+          fundraising: [],
+          ecosystems: {
+            ecosystems: [],
+            onMainNet: [],
+            onTestNet: [],
+            planToLaunch: [],
+          },
+          social: {
+            heat: null,
+            heatRank: null,
+            influence: null,
+            influenceRank: null,
+            followers: null,
+            following: null,
+            hotIndexScore: null,
+            hotIndexRank: null,
+            xHeatScore: null,
+            xHeatRank: null,
+            xInfluenceScore: null,
+            xInfluenceRank: null,
+            xFollowersScore: null,
+            xFollowersRank: null,
+            socialLinks: [],
+          },
+          asOf,
+          sourceUsed: [],
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+        technical: {
+          rsi: { period: 14, value: null, signal: 'neutral' },
+          macd: {
+            macd: null,
+            signalLine: null,
+            histogram: null,
+            signal: 'neutral',
+          },
+          ma: { ma7: null, ma25: null, ma99: null, signal: 'neutral' },
+          boll: {
+            upper: null,
+            middle: null,
+            lower: null,
+            bandwidth: null,
+            signal: 'neutral',
+          },
+          atr: { value: null, period: 14 },
+          swingHigh: null,
+          swingLow: null,
+          summarySignal: 'neutral',
+          asOf,
+          sourceUsed: 'technical_unavailable',
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+        onchain: {
+          cexNetflow: {
+            window: '30d',
+            inflowUsd: null,
+            outflowUsd: null,
+            netflowUsd: null,
+            signal: 'neutral',
+            exchanges: [],
+            asOf,
+            sourceUsed: [],
+            degraded: true,
+            degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+          },
+        },
+        security: {
+          isContractOpenSource: null,
+          isHoneypot: null,
+          isOwnerRenounced: null,
+          riskScore: null,
+          riskLevel: 'unknown',
+          riskItems: [],
+          canTradeSafely: null,
+          holderCount: null,
+          lpHolderCount: null,
+          creatorPercent: null,
+          ownerPercent: null,
+          isInCex: null,
+          cexList: [],
+          isInDex: null,
+          transferPausable: null,
+          selfdestruct: null,
+          externalCall: null,
+          honeypotWithSameCreator: null,
+          trustList: null,
+          isAntiWhale: null,
+          transferTax: null,
+          asOf,
+          sourceUsed: 'security_unavailable',
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+        liquidity: {
+          quoteToken: 'OTHER',
+          hasUsdtOrUsdcPair: false,
+          liquidityUsd: null,
+          liquidity1hAgoUsd: null,
+          liquidityDrop1hPct: null,
+          withdrawalRiskFlag: false,
+          volume24hUsd: null,
+          priceImpact1kPct: null,
+          isLpLocked: null,
+          lpLockRatioPct: null,
+          rugpullRiskSignal: 'unknown',
+          warnings: [],
+          asOf,
+          sourceUsed: 'liquidity_unavailable',
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+        sentiment: {
+          socialVolume: null,
+          socialDominance: null,
+          sentimentPositive: null,
+          sentimentNegative: null,
+          sentimentBalanced: null,
+          sentimentScore: null,
+          devActivity: null,
+          githubActivity: null,
+          signal: 'neutral',
+          asOf,
+          sourceUsed: 'sentiment_unavailable',
+          degraded: true,
+          degradeReason: 'TASK_DISPOSITION_SHORT_CIRCUIT',
+        },
+      },
+    };
+  }
+
+  private buildPlaceholderAlerts(): AlertsSnapshot {
+    return {
+      alertLevel: 'info',
+      alertType: [],
+      riskState: 'normal',
+      redCount: 0,
+      yellowCount: 0,
+      items: [],
+      asOf: new Date().toISOString(),
+    };
+  }
+
+  private buildPlaceholderAnalysis(
+    plan: PlanOutput,
+    intent: IntentOutput,
+  ): AnalysisOutput {
+    const isZh = intent.language === 'zh' || intent.language === 'cn';
+    const reason =
+      plan.taskDisposition === 'clarify'
+        ? isZh
+          ? '进入分析前需要先澄清用户真实任务。'
+          : 'The user request needs clarification before analysis.'
+        : plan.taskDisposition === 'non_analysis'
+          ? isZh
+            ? '该请求不适合进入标准币种分析流程。'
+            : 'This request should not enter the standard asset analysis flow.'
+          : isZh
+            ? '该请求不适合继续作为常规分析任务处理。'
+            : 'This request should not continue as a normal analysis task.';
+
+    return {
+      verdict: 'INSUFFICIENT_DATA',
+      confidence: 0,
+      reason,
+      buyZone: null,
+      sellZone: null,
+      evidence: [reason],
+      summary: reason,
+      keyObservations: [plan.primaryIntent],
+      hardBlocks: [],
+      riskHighlights: [],
+      opportunityHighlights: [],
+      dataQualityNotes: [],
+    };
   }
 
   private emitStageEvent(

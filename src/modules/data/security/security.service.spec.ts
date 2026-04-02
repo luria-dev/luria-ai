@@ -15,7 +15,7 @@ describe('SecurityService.fetchSnapshot', () => {
     jest.restoreAllMocks();
   });
 
-  it('should map blockaid response into non-degraded snapshot', async () => {
+  it('should map GoPlus response into non-degraded snapshot', async () => {
     global.fetch = jest.fn(async () => {
       return {
         ok: true,
@@ -38,7 +38,7 @@ describe('SecurityService.fetchSnapshot', () => {
     const service = new SecurityService();
     const snapshot = await service.fetchSnapshot(identity);
 
-    expect(snapshot.sourceUsed).toBe('blockaid');
+    expect(snapshot.sourceUsed).toBe('goplus');
     expect(snapshot.degraded).toBe(false);
     expect(snapshot.isHoneypot).toBe(false);
     expect(snapshot.isOwnerRenounced).toBe(true);
@@ -46,7 +46,7 @@ describe('SecurityService.fetchSnapshot', () => {
     expect(snapshot.riskLevel).toBe('low');
   });
 
-  it('should throw when blockaid source is unavailable (no degrade fallback)', async () => {
+  it('should throw when GoPlus source is unavailable (no degrade fallback)', async () => {
     global.fetch = jest.fn(
       async () => ({ ok: false, status: 503 }) as Response,
     ) as typeof fetch;

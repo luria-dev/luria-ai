@@ -6,6 +6,7 @@ import type {
   FundamentalsSnapshot,
   LiquiditySnapshot,
   NewsSnapshot,
+  OpenResearchSnapshot,
   PriceSnapshot,
   SecuritySnapshot,
   SentimentSnapshot,
@@ -109,6 +110,17 @@ export type IntentMemoSnapshot = {
 };
 
 export const planPrioritySchema = z.enum(['high', 'medium', 'low']);
+export const planResponseModeSchema = z.enum(['explain', 'assess', 'act']);
+export type PlanResponseMode = z.infer<typeof planResponseModeSchema>;
+export const planTaskDispositionSchema = z.enum([
+  'analyze',
+  'clarify',
+  'non_analysis',
+  'refuse',
+]);
+export type PlanTaskDisposition = z.infer<typeof planTaskDispositionSchema>;
+export const planSearchDepthSchema = z.enum(['light', 'standard', 'heavy']);
+export type PlanSearchDepth = z.infer<typeof planSearchDepthSchema>;
 
 export const planRequirementSchema = z.object({
   dataType: dataTypeSchema,
@@ -119,15 +131,33 @@ export const planRequirementSchema = z.object({
 });
 export type PlanRequirement = z.infer<typeof planRequirementSchema>;
 
+export const planOpenResearchSchema = z.object({
+  enabled: z.boolean(),
+  depth: planSearchDepthSchema,
+  priority: planPrioritySchema,
+  reason: z.string().min(1),
+  topics: z.array(z.string()).default([]),
+  goals: z.array(z.string()).default([]),
+  preferredSources: z.array(z.string()).default([]),
+  mustUseInReport: z.boolean().default(true),
+});
+export type PlanOpenResearch = z.infer<typeof planOpenResearchSchema>;
+
 export const planOutputSchema = z.object({
+  taskDisposition: planTaskDispositionSchema,
+  primaryIntent: z.string().min(1),
+  subTasks: z.array(z.string().min(1)).min(1),
+  responseMode: planResponseModeSchema,
   requirements: z.array(planRequirementSchema).min(1),
   analysisQuestions: z.array(z.string()).min(1),
+  openResearch: planOpenResearchSchema,
 });
 export type PlanOutput = z.infer<typeof planOutputSchema>;
 
 export type ExecutionPayload = {
   market: { price: PriceSnapshot };
   news: NewsSnapshot;
+  openResearch: OpenResearchSnapshot;
   tokenomics: TokenomicsSnapshot;
   fundamentals: FundamentalsSnapshot;
   technical: TechnicalSnapshot;
@@ -300,6 +330,7 @@ export type WorkflowNodeExecutionMeta = z.infer<
 export type WorkflowNodeStatus = {
   intent?: WorkflowNodeExecutionMeta;
   planning?: WorkflowNodeExecutionMeta;
+  executor?: WorkflowNodeExecutionMeta;
   analysis?: WorkflowNodeExecutionMeta;
   report?: WorkflowNodeExecutionMeta;
 };

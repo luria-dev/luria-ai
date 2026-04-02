@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import {
   IntentOutput,
   PlanOutput,
+  PlanResponseMode,
+  PlanSearchDepth,
+  PlanTaskDisposition,
   planOutputSchema,
   PlanRequirement,
   WorkflowNodeExecutionMeta,
@@ -94,135 +97,468 @@ export class PlanningNodeService {
   }
 
   private buildDeterministicPlan(intent: IntentOutput): PlanOutput {
-    const requirements = new Map<
-      PlanRequirement['dataType'],
-      PlanRequirement
-    >();
+    const taskDisposition = this.inferTaskDisposition(intent);
+    const responseMode = this.inferResponseMode(intent);
+    const primaryIntent = this.inferPrimaryIntent(intent, responseMode);
+    const subTasks = this.inferSubTasks(intent, responseMode);
 
-    const upsert = (requirement: PlanRequirement) => {
-      requirements.set(requirement.dataType, requirement);
+    return {
+      taskDisposition,
+      primaryIntent,
+      subTasks,
+      responseMode,
+      requirements: this.buildFallbackRequirements(taskDisposition, responseMode),
+      analysisQuestions: this.buildFallbackAnalysisQuestions(
+        subTasks,
+        responseMode,
+      ),
+      openResearch: this.buildOpenResearchPlan(
+        intent,
+        responseMode,
+        taskDisposition,
+        subTasks,
+      ),
     };
+  }
 
-    upsert({
-      dataType: 'price',
-      required: true,
-      priority: 'high',
-      sourceHint: ['coingecko'],
-      reason: 'Base price context is required for any market judgment.',
-    });
-    upsert({
-      dataType: 'security',
-      required: true,
-      priority: 'high',
-      sourceHint: ['goplus'],
-      reason: 'Security redlines are hard constraints for strategy.',
-    });
-    upsert({
-      dataType: 'liquidity',
-      required: true,
-      priority: 'high',
-      sourceHint: ['geckoterminal'],
-      reason: 'Liquidity quality gates tradability and slippage risk.',
-    });
-    upsert({
-      dataType: 'sentiment',
-      required: true,
-      priority: 'medium',
-      sourceHint: ['santiment'],
-      reason: 'Social sentiment and developer activity provide community health signals.',
-    });
+  private buildOpenResearchPlan(
+    intent: IntentOutput,
+    responseMode: PlanResponseMode,
+    taskDisposition: PlanTaskDisposition,
+    subTasks: string[],
+  ): PlanOutput['openResearch'] {
+    const normalizedQuery = intent.userQuery.toLowerCase();
+    const symbol = intent.entities[0] ?? 'the target asset';
+    const shouldSearch = taskDisposition === 'analyze';
+    const depth = this.inferSearchDepth(intent, responseMode, subTasks);
+    const topics = [
+      `current public materials about ${symbol}`,
+      ...subTasks.map((task) => `${symbol} ${task}`),
+    ];
 
     if (
-      intent.objective === 'news_focus' ||
-      intent.focusAreas.includes('news_events')
+      normalizedQuery.includes('l2') ||
+      normalizedQuery.includes('layer 2') ||
+      normalizedQuery.includes('二层')
     ) {
-      upsert({
+      topics.push(`layer 2 progress around ${symbol}`);
+    }
+
+    return {
+      enabled: shouldSearch,
+      depth,
+      priority: depth === 'heavy' ? 'high' : 'medium',
+      reason: shouldSearch
+        ? 'Open research is enabled by default for analysis tasks so the system can use current public materials, not only internal structured modules.'
+        : 'This request should not enter the normal analysis workflow, so open research is not required.',
+      topics: [...new Set(topics)].slice(0, depth === 'heavy' ? 6 : 4),
+      goals: shouldSearch
+        ? [
+            'Answer the user explicit sub-questions with current public evidence.',
+            'Use external evidence to confirm, challenge, or sharpen the report conclusion.',
+            responseMode === 'act'
+              ? 'Check whether near-term public information changes the execution frame.'
+              : 'Improve freshness, context, and readability for non-specialist readers.',
+          ]
+        : ['Decide the safest non-analysis response for the user request.'],
+      preferredSources: shouldSearch
+        ? this.buildPreferredResearchSources(intent, normalizedQuery)
+        : [],
+      mustUseInReport: shouldSearch,
+    };
+  }
+
+  private inferTaskDisposition(intent: IntentOutput): PlanTaskDisposition {
+    const query = intent.userQuery.toLowerCase();
+    if (
+      this.matchesAnyKeyword(query, [
+        'ignore previous',
+        'hack',
+        'steal',
+        'attack',
+        'bypass',
+        '漏洞利用',
+        '攻击',
+        '盗取',
+      ])
+    ) {
+      return 'refuse';
+    }
+
+    if (
+      this.matchesAnyKeyword(query, [
+        '写邮件',
+        '翻译',
+        '改文案',
+        '写诗',
+        '讲笑话',
+        'translate',
+        'rewrite this',
+        'write an email',
+      ])
+    ) {
+      return 'non_analysis';
+    }
+
+    if (
+      intent.entities.length === 0 &&
+      !this.matchesAnyKeyword(query, [
+        'btc',
+        'eth',
+        'sol',
+        '比特币',
+        '以太坊',
+        'solana',
+      ])
+    ) {
+      return 'clarify';
+    }
+
+    return 'analyze';
+  }
+
+  private inferResponseMode(intent: IntentOutput): PlanResponseMode {
+    const query = intent.userQuery.toLowerCase();
+    const actKeywords = [
+      'buy',
+      'sell',
+      'entry',
+      'exit',
+      'support',
+      'resistance',
+      'take profit',
+      'stop loss',
+      'timing',
+      'how to trade',
+      '怎么买',
+      '怎么卖',
+      '怎么做',
+      '进场',
+      '出场',
+      '支撑',
+      '阻力',
+      '止盈',
+      '止损',
+      '仓位',
+      '操作',
+      '时机',
+    ];
+    if (
+      intent.objective === 'timing_decision' ||
+      actKeywords.some((keyword) => query.includes(keyword))
+    ) {
+      return 'act';
+    }
+
+    const assessKeywords = [
+      'invest',
+      'investment',
+      'worth',
+      'should i buy',
+      'risk',
+      'thesis',
+      'valuation',
+      '适合投资',
+      '值得投资',
+      '投资价值',
+      '核心驱动',
+      '最大风险',
+      '怎么看',
+      '值不值得',
+    ];
+    if (
+      intent.objective === 'risk_check' ||
+      assessKeywords.some((keyword) => query.includes(keyword))
+    ) {
+      return 'assess';
+    }
+
+    return 'explain';
+  }
+
+  private inferPrimaryIntent(
+    intent: IntentOutput,
+    responseMode: PlanResponseMode,
+  ): string {
+    const symbol = intent.entities[0] ?? 'the target asset';
+    return responseMode === 'act'
+      ? `The user wants an execution-oriented answer about ${symbol}.`
+      : responseMode === 'assess'
+        ? `The user wants an investment judgment about ${symbol}, with reasons and risks.`
+        : `The user wants to understand what is happening around ${symbol} and why it matters.`;
+  }
+
+  private inferSubTasks(
+    intent: IntentOutput,
+    responseMode: PlanResponseMode,
+  ): string[] {
+    const query = intent.userQuery.toLowerCase();
+    const symbol = intent.entities[0] ?? 'the target asset';
+    const tasks: string[] = [];
+
+    if (
+      query.includes('最近') ||
+      query.includes('最新') ||
+      query.includes('动向') ||
+      query.includes('进展') ||
+      query.includes('recent') ||
+      query.includes('latest')
+    ) {
+      tasks.push(`what changed recently around ${symbol}`);
+    }
+
+    if (
+      query.includes('l2') ||
+      query.includes('layer 2') ||
+      query.includes('二层')
+    ) {
+      tasks.push(`how real the layer-2 or ecosystem progress around ${symbol} is`);
+    }
+
+    if (
+      query.includes('核心驱动') ||
+      query.includes('driver') ||
+      query.includes('drivers') ||
+      query.includes('why') ||
+      query.includes('为什么') ||
+      query.includes('原因')
+    ) {
+      tasks.push(`what is driving the current move in ${symbol}`);
+    }
+
+    if (
+      query.includes('最大风险') ||
+      query.includes('risk') ||
+      query.includes('risks') ||
+      query.includes('风险')
+    ) {
+      tasks.push(`what the biggest current risk is for ${symbol}`);
+    }
+
+    if (
+      query.includes('适合投资') ||
+      query.includes('值不值得') ||
+      query.includes('investment') ||
+      query.includes('invest')
+    ) {
+      tasks.push(`whether ${symbol} looks investable right now and why`);
+    }
+
+    if (
+      query.includes('基本面') ||
+      query.includes('fundamental') ||
+      query.includes('fundamentals') ||
+      query.includes('情绪') ||
+      query.includes('sentiment')
+    ) {
+      tasks.push(`whether the move in ${symbol} is more fundamentals-driven or sentiment-driven`);
+    }
+
+    const defaults =
+      responseMode === 'explain'
+        ? [
+            `what changed recently around ${symbol}`,
+            `what is still uncertain or easy to overread`,
+          ]
+        : responseMode === 'assess'
+          ? [
+              `what supports paying attention to ${symbol} right now`,
+              `how to interpret the current investment case without turning it into a trade call`,
+            ]
+          : [
+              `what matters for acting on ${symbol} right now`,
+              'which conditions must be confirmed before taking action',
+            ];
+
+    return [...new Set([...tasks, ...defaults])].slice(0, 5);
+  }
+
+  private buildPreferredResearchSources(
+    intent: IntentOutput,
+    normalizedQuery: string,
+  ): string[] {
+    const symbol = (intent.entities[0] ?? '').toLowerCase();
+    const sources = ['coindesk.com', 'rootdata.com'];
+
+    if (symbol === 'eth' || normalizedQuery.includes('l2')) {
+      sources.push('blog.ethereum.org', 'ethereum.org', 'l2beat.com');
+    }
+    if (symbol === 'btc') {
+      sources.push('bitcoin.org');
+    }
+    if (symbol === 'sol') {
+      sources.push('solana.com');
+    }
+    if (
+      normalizedQuery.includes('fundraising') ||
+      normalizedQuery.includes('融资') ||
+      normalizedQuery.includes('基本面')
+    ) {
+      sources.push('theblock.co');
+    }
+
+    return [...new Set(sources)].slice(0, 5);
+  }
+
+  private buildFallbackRequirements(
+    taskDisposition: PlanTaskDisposition,
+    responseMode: PlanResponseMode,
+  ): PlanRequirement[] {
+    if (taskDisposition !== 'analyze') {
+      return [
+        {
+          dataType: 'news',
+          required: false,
+          priority: 'low',
+          sourceHint: ['coindesk'],
+          reason: 'No structured market fetch is needed before clarifying or declining the request.',
+        },
+      ];
+    }
+
+    if (responseMode === 'act') {
+      return [
+        {
+          dataType: 'price',
+          required: true,
+          priority: 'high',
+          sourceHint: ['coingecko'],
+          reason: 'Price context is necessary for action-oriented questions.',
+        },
+        {
+          dataType: 'technical',
+          required: true,
+          priority: 'high',
+          sourceHint: ['coingecko'],
+          reason: 'Execution questions need market structure and timing context.',
+        },
+        {
+          dataType: 'onchain',
+          required: true,
+          priority: 'medium',
+          sourceHint: ['santiment'],
+          reason: 'On-chain data helps confirm whether the move has participation behind it.',
+        },
+        {
+          dataType: 'security',
+          required: true,
+          priority: 'high',
+          sourceHint: ['goplus'],
+          reason: 'Risk guardrails must still apply before action.',
+        },
+      ];
+    }
+
+    if (responseMode === 'assess') {
+      return [
+        {
+          dataType: 'price',
+          required: true,
+          priority: 'medium',
+          sourceHint: ['coingecko'],
+          reason: 'Price gives current context but should not dominate the investment judgment.',
+        },
+        {
+          dataType: 'fundamentals',
+          required: true,
+          priority: 'high',
+          sourceHint: ['rootdata'],
+          reason: 'Investment questions need project and ecosystem context.',
+        },
+        {
+          dataType: 'tokenomics',
+          required: true,
+          priority: 'medium',
+          sourceHint: ['tokenomist'],
+          reason: 'Supply-side structure can change the investment case.',
+        },
+        {
+          dataType: 'security',
+          required: true,
+          priority: 'medium',
+          sourceHint: ['goplus'],
+          reason: 'Security issues can invalidate the thesis.',
+        },
+      ];
+    }
+
+    return [
+      {
+        dataType: 'price',
+        required: true,
+        priority: 'medium',
+        sourceHint: ['coingecko'],
+        reason: 'Price gives simple market context for an explanatory answer.',
+      },
+      {
         dataType: 'news',
         required: true,
         priority: 'high',
         sourceHint: ['coindesk'],
-        reason: 'Requested intent focuses on latest events and announcements.',
-      });
-    }
-
-    if (
-      intent.objective === 'tokenomics_focus' ||
-      intent.focusAreas.includes('tokenomics')
-    ) {
-      upsert({
-        dataType: 'tokenomics',
-        required: true,
-        priority: 'high',
-        sourceHint: ['tokenomist'],
-        reason: 'Tokenomics evidence is required for supply/unlock risk.',
-      });
-    } else {
-    upsert({
-      dataType: 'tokenomics',
-      required: true,
-      priority: 'medium',
-      sourceHint: ['tokenomist'],
-      reason: 'Tokenomics evidence stabilizes confidence in final verdict.',
-    });
-
-    upsert({
-      dataType: 'fundamentals',
-      required: true,
-      priority: 'low',
-      sourceHint: ['rootdata'],
-      reason: 'Project fundamentals and backing add context to narrative strength.',
-    });
-    }
-
-    if (
-      intent.objective === 'timing_decision' ||
-      intent.focusAreas.includes('technical_indicators')
-    ) {
-      upsert({
-        dataType: 'technical',
-        required: true,
-        priority: 'high',
-        sourceHint: ['coingecko'],
-        reason: 'Entry/exit intent requires technical indicator confirmation.',
-      });
-      upsert({
-        dataType: 'onchain',
-        required: true,
-        priority: 'high',
-        sourceHint: ['santiment'],
-        reason: 'Capital flow confirms buy/sell pressure for timing decisions.',
-      });
-    } else {
-      upsert({
-        dataType: 'technical',
+        reason: 'Recent changes usually need current public information.',
+      },
+      {
+        dataType: 'fundamentals',
         required: true,
         priority: 'medium',
-        sourceHint: ['coingecko'],
-        reason: 'Technical signal provides directional context.',
-      });
-      upsert({
-        dataType: 'onchain',
+        sourceHint: ['rootdata'],
+        reason: 'Explanatory answers need product and ecosystem context.',
+      },
+      {
+        dataType: 'sentiment',
         required: true,
         priority: 'medium',
         sourceHint: ['santiment'],
-        reason: 'Onchain flow supports pressure confirmation.',
-      });
-    }
-
-    const analysisQuestions = [
-      'What are the dominant bullish and bearish signals in this window?',
-      'Do risk constraints invalidate aggressive long positions?',
-      'How much degraded data affects decision confidence?',
+        reason: 'Sentiment helps judge whether the move is narrative-heavy.',
+      },
     ];
-    if (intent.taskType === 'comparison' && intent.entities.length >= 2) {
-      analysisQuestions.push(
-        `For comparison, which target has better risk-adjusted profile among: ${intent.entities.join(', ')}?`,
-      );
+  }
+
+  private buildFallbackAnalysisQuestions(
+    subTasks: string[],
+    responseMode: PlanResponseMode,
+  ): string[] {
+    const questions = subTasks.map((task) =>
+      task.endsWith('?') ? task : `${task}?`,
+    );
+
+    const defaultQuestion =
+      responseMode === 'act'
+        ? 'What conditions must be confirmed before acting?'
+        : responseMode === 'assess'
+          ? 'What could make this investment view wrong?'
+          : 'What is still uncertain or easy to overread?';
+
+    return [...new Set([...questions, defaultQuestion])].slice(0, 5);
+  }
+
+  private inferSearchDepth(
+    intent: IntentOutput,
+    responseMode: PlanResponseMode,
+    subTasks: string[],
+  ): PlanSearchDepth {
+    const query = intent.userQuery.toLowerCase();
+    if (
+      subTasks.length >= 3 ||
+      responseMode === 'assess' ||
+      this.matchesAnyKeyword(query, [
+        'l2',
+        'layer 2',
+        '最近',
+        '最新',
+        '核心驱动',
+        '最大风险',
+        '为什么',
+      ])
+    ) {
+      return 'heavy';
     }
 
-    return {
-      requirements: [...requirements.values()],
-      analysisQuestions,
-    };
+    return responseMode === 'act' ? 'standard' : 'heavy';
+  }
+
+  private matchesAnyKeyword(query: string, keywords: string[]): boolean {
+    const normalizedQuery = query.toLowerCase();
+    return keywords.some((keyword) => normalizedQuery.includes(keyword));
   }
 }

@@ -47,6 +47,52 @@ describe('ReportNodeService', () => {
         focusAreas: ['price_action', 'tokenomics'],
         constraints: [],
       },
+      plan: {
+        taskDisposition: 'analyze',
+        primaryIntent: 'Assess BTC investment value.',
+        subTasks: [
+          'what supports the current BTC investment view',
+          'what the biggest BTC risk is',
+        ],
+        responseMode: 'assess',
+        requirements: [
+          {
+            dataType: 'price',
+            required: true,
+            priority: 'high',
+            sourceHint: ['coingecko'],
+            reason: 'Market context is required.',
+          },
+          {
+            dataType: 'fundamentals',
+            required: true,
+            priority: 'high',
+            sourceHint: ['rootdata'],
+            reason: 'Investment value requires fundamentals.',
+          },
+          {
+            dataType: 'tokenomics',
+            required: true,
+            priority: 'medium',
+            sourceHint: ['tokenomist'],
+            reason: 'Supply context is relevant.',
+          },
+        ],
+        analysisQuestions: [
+          'What supports the current investment view?',
+          'What is the biggest risk?',
+        ],
+        openResearch: {
+          enabled: true,
+          depth: 'standard',
+          priority: 'low',
+          reason: 'Not needed in this test.',
+          topics: [],
+          goals: [],
+          preferredSources: [],
+          mustUseInReport: true,
+        },
+      },
       execution: {
         identity: {
           symbol: 'BTC',
@@ -91,6 +137,19 @@ describe('ReportNodeService', () => {
             degraded: true,
             degradeReason: 'NEWS_NOT_REQUESTED',
           },
+          openResearch: {
+            enabled: false,
+            query: '',
+            topics: [],
+            goals: [],
+            preferredSources: [],
+            takeaways: [],
+            items: [],
+            asOf: new Date().toISOString(),
+            sourceUsed: [],
+            degraded: true,
+            degradeReason: 'OPEN_RESEARCH_DISABLED',
+          },
           tokenomics: {
             allocation: {
               teamPct: 0,
@@ -103,6 +162,18 @@ describe('ReportNodeService', () => {
               currentAnnualPct: 2.79,
               targetAnnualPct: null,
               isDynamic: false,
+            },
+            burns: {
+              totalBurnAmount: null,
+              recentBurns: [],
+            },
+            buybacks: {
+              totalBuybackAmount: null,
+              recentBuybacks: [],
+            },
+            fundraising: {
+              totalRaised: null,
+              rounds: [],
             },
             evidence: [],
             evidenceConflicts: [],
@@ -272,9 +343,12 @@ describe('ReportNodeService', () => {
       },
     });
 
-    expect(result.body).toContain('BTC 分析报告');
+    expect(result.body).toContain('BTC 投资判断');
     expect(result.body).toContain('## 核心结论');
+    expect(result.body).toContain('## 现在如何理解投资价值');
     expect(result.body).toContain('69175.00');
+    expect(result.body).not.toContain('## 现在该怎么做');
+    expect(result.body).not.toContain('## 关键触发位');
     expect(result.body).not.toContain('Core evidence is incomplete');
     expect(result.body).not.toContain('degraded');
     expect(result.body).not.toContain('数据不足');
@@ -335,6 +409,39 @@ describe('ReportNodeService', () => {
         focusAreas: ['price_action', 'technical_indicators'],
         constraints: [],
       },
+      plan: {
+        taskDisposition: 'analyze',
+        primaryIntent: 'Give execution-oriented answers for BTC.',
+        subTasks: ['what matters for BTC execution right now'],
+        responseMode: 'act',
+        requirements: [
+          {
+            dataType: 'price',
+            required: true,
+            priority: 'high',
+            sourceHint: ['coingecko'],
+            reason: 'Price context is required.',
+          },
+          {
+            dataType: 'technical',
+            required: true,
+            priority: 'high',
+            sourceHint: ['coingecko'],
+            reason: 'Technical structure is required.',
+          },
+        ],
+        analysisQuestions: ['What matters for execution right now?'],
+        openResearch: {
+          enabled: true,
+          depth: 'standard',
+          priority: 'low',
+          reason: 'Not needed in this test.',
+          topics: [],
+          goals: [],
+          preferredSources: [],
+          mustUseInReport: true,
+        },
+      },
       execution: {
         identity: {
           symbol: 'BTC',
@@ -379,6 +486,19 @@ describe('ReportNodeService', () => {
             degraded: true,
             degradeReason: 'NEWS_NOT_REQUESTED',
           },
+          openResearch: {
+            enabled: false,
+            query: '',
+            topics: [],
+            goals: [],
+            preferredSources: [],
+            takeaways: [],
+            items: [],
+            asOf: new Date().toISOString(),
+            sourceUsed: [],
+            degraded: true,
+            degradeReason: 'OPEN_RESEARCH_DISABLED',
+          },
           tokenomics: {
             allocation: {
               teamPct: null,
@@ -391,6 +511,18 @@ describe('ReportNodeService', () => {
               currentAnnualPct: null,
               targetAnnualPct: null,
               isDynamic: false,
+            },
+            burns: {
+              totalBurnAmount: null,
+              recentBurns: [],
+            },
+            buybacks: {
+              totalBuybackAmount: null,
+              recentBuybacks: [],
+            },
+            fundraising: {
+              totalRaised: null,
+              rounds: [],
             },
             evidence: [],
             evidenceConflicts: [],

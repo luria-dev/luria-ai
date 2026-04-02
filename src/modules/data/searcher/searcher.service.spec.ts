@@ -32,10 +32,10 @@ describe('SearcherService', () => {
   it('should split targets from intent entities when taskType is comparison', async () => {
     const marketStub: Pick<MarketService, 'searchCandidates'> = {
       async searchCandidates(query: string): Promise<AnalyzeCandidate[]> {
-        if (query === 'ASTER') {
+        if (query === 'ASTER' || query === 'Aster') {
           return [makeCandidate('ASTER', 'base')];
         }
-        if (query === 'HYPER') {
+        if (query === 'HYPER' || query === 'Hyper') {
           return [makeCandidate('HYPER', 'arbitrum')];
         }
         return [];
@@ -75,16 +75,12 @@ describe('SearcherService', () => {
       marketStub as MarketService,
       searchCacheStub as SearchCacheService,
     );
-    const result = await service.resolveMany(
-      'Aster 这个代币怎么样',
-      null,
-      {
-        taskType: 'single_asset',
-        entities: ['Aster'],
-        entityMentions: ['Aster'],
-        chains: [],
-      },
-    );
+    const result = await service.resolveMany('Aster 这个代币怎么样', null, {
+      taskType: 'single_asset',
+      entities: ['Aster'],
+      entityMentions: ['Aster'],
+      chains: [],
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0].targetKey).toBe('PRIMARY');
@@ -203,16 +199,12 @@ describe('SearcherService', () => {
       marketStub as MarketService,
       searchCacheStub as SearchCacheService,
     );
-    const result = await service.resolveMany(
-      '帮我查询 uni 的行情',
-      null,
-      {
-        taskType: 'single_asset',
-        entities: [], // Empty entities
-        entityMentions: [],
-        chains: [],
-      },
-    );
+    const result = await service.resolveMany('帮我查询 uni 的行情', null, {
+      taskType: 'single_asset',
+      entities: [], // Empty entities
+      entityMentions: [],
+      chains: [],
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0].targetKey).toBe('PRIMARY');

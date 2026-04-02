@@ -52,6 +52,7 @@ export type AnalyzeJobData = {
   mode: RequestMode;
   lang: RequestLang;
   query: string;
+  conversationHistoryRaw?: string | null;
   timeWindow: '24h' | '7d' | '30d';
   preferredChain: string | null;
   targets: AnalyzeJobTarget[];

@@ -9,6 +9,7 @@ import { SecurityModule } from '../data/security/security.module';
 import { LiquidityModule } from '../data/liquidity/liquidity.module';
 import { SentimentModule } from '../data/sentiment/sentiment.module';
 import { CacheModule } from '../data/cache/cache.module';
+import { OpenResearchModule } from '../data/open-research/open-research.module';
 import { AlertsModule } from '../risk/alerts/alerts.module';
 import { StrategyModule } from '../strategy/strategy.module';
 import { LlmRuntimeService } from './runtime/llm-runtime.service';
@@ -32,6 +33,7 @@ import { IntentMemoService } from './state/intent-memo.service';
     LiquidityModule,
     SentimentModule,
     CacheModule,
+    OpenResearchModule,
     AlertsModule,
     StrategyModule,
   ],

@@ -28,6 +28,7 @@ import { AlertsService } from '../../modules/risk/alerts/alerts.service';
 import { StrategyService } from '../../modules/strategy/strategy.service';
 import { ReporterService } from '../../modules/reporter/reporter.service';
 import { NewsService } from '../../modules/data/news/news.service';
+import { OpenResearchService } from '../../modules/data/open-research/open-research.service';
 import {
   AnalysisWorkflowService,
   WorkflowStageEvent,
@@ -51,6 +52,7 @@ import type {
 import { RequestStateService } from './services/request-state.service';
 import { AnalyzeQueueService } from './services/analyze-queue.service';
 import { ComparisonService } from './services/comparison.service';
+import { DeepConversationService } from './services/deep-conversation.service';
 import { InstantChatService } from './services/instant-chat.service';
 
 @Injectable()
@@ -76,7 +78,9 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     private readonly requestState: RequestStateService,
     private readonly analyzeQueue: AnalyzeQueueService,
     private readonly comparison: ComparisonService,
+    private readonly deepConversation: DeepConversationService,
     private readonly instantChat: InstantChatService,
+    private readonly openResearch: OpenResearchService,
   ) {}
 
   async analyzeMessage(input: {
@@ -145,7 +149,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         mode: 'continued',
         nextAction: 'request_not_found',
         errorCode: 'REQUEST_NOT_FOUND',
-        message: this.localize(input.lang, '请求不存在。', 'Request not found.'),
+        message: this.localize(
+          input.lang,
+          '请求不存在。',
+          'Request not found.',
+        ),
       };
     }
 
@@ -157,6 +165,12 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       const candidateReply = this.resolveSelectionReply(existing, message);
 
       if (candidateReply.kind === 'matched') {
+        await this.appendDeepConversationTurn({
+          threadId: resolvedThreadId,
+          requestId: existing.requestId,
+          role: 'user',
+          content: message,
+        });
         return this.toSubmitResponse(
           await this.select(
             existing.requestId,
@@ -169,6 +183,12 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       }
 
       if (candidateReply.kind === 'clarify') {
+        await this.appendDeepConversationTurn({
+          threadId: resolvedThreadId,
+          requestId: existing.requestId,
+          role: 'user',
+          content: message,
+        });
         return {
           status: 'failed',
           requestId: existing.requestId,
@@ -176,12 +196,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           mode: 'continued',
           nextAction: 'clarify_input',
           errorCode: 'AMBIGUOUS_USER_REPLY',
-          message:
-            this.localize(
-              existing.lang,
-              '无法将你的回复映射到候选标的，请直接回复代币符号或精确名称。',
-              'Could not map your reply to a candidate. Please answer with the token symbol or exact name.',
-            ),
+          message: this.localize(
+            existing.lang,
+            '无法将你的回复映射到候选标的，请直接回复代币符号或精确名称。',
+            'Could not map your reply to a candidate. Please answer with the token symbol or exact name.',
+          ),
           payload: {
             candidates: existing.candidates,
             pendingTargets: existing.targets
@@ -248,6 +267,14 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         ),
       },
     });
+    if (normalizedThreadId) {
+      await this.appendDeepConversationTurn({
+        threadId: normalizedThreadId,
+        requestId,
+        role: 'user',
+        content: query,
+      });
+    }
     const queueMode = await this.enqueueAnalyzeJob({
       requestId,
       threadId: normalizedThreadId,
@@ -316,14 +343,24 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       candidates: [],
       payload: {
         phase: 'instant_reply',
-        label: this.localize(lang, '正在生成快速回答', 'Generating quick answer'),
+        label: this.localize(
+          lang,
+          '正在生成快速回答',
+          'Generating quick answer',
+        ),
         progressPct: 50,
       },
     };
     await this.requestState.set(initialState);
 
     // 异步执行 instant chat，不阻塞响应
-    void this.executeInstantChat(requestId, resolvedThreadId, query, timeWindow, lang);
+    void this.executeInstantChat(
+      requestId,
+      resolvedThreadId,
+      query,
+      timeWindow,
+      lang,
+    );
 
     return {
       status: 'accepted',
@@ -343,7 +380,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         threadId: resolvedThreadId,
         targets: [],
         phase: 'instant_reply' as const,
-        label: this.localize(lang, '正在生成快速回答', 'Generating quick answer'),
+        label: this.localize(
+          lang,
+          '正在生成快速回答',
+          'Generating quick answer',
+        ),
         progressPct: 50,
         note: this.localize(
           lang,
@@ -506,10 +547,9 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     const candidateToResolve = targetToSelect.candidates.find(
       (candidate) => candidate.candidateId === candidateId,
     );
-    const resolvedIdentity =
-      candidateToResolve
-        ? this.toIdentityFromCandidate(candidateToResolve)
-        : this.searcher.resolveCandidateById(candidateId);
+    const resolvedIdentity = candidateToResolve
+      ? this.toIdentityFromCandidate(candidateToResolve)
+      : this.searcher.resolveCandidateById(candidateId);
     if (!resolvedIdentity) {
       return {
         status: 'failed',
@@ -681,7 +721,11 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
               )
             : existing.status === 'failed'
               ? this.localize(existing.lang, '分析失败。', 'Pipeline failed.')
-              : this.localize(existing.lang, '分析进行中。', 'Pipeline pending.'),
+              : this.localize(
+                  existing.lang,
+                  '分析进行中。',
+                  'Pipeline pending.',
+                ),
       payload: {
         ...existing.payload,
         threadId: existing.threadId,
@@ -718,6 +762,10 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       this.alerts.getStatus(),
       this.strategy.getStatus(),
       this.reporter.getStatus(),
+      this.openResearch?.getStatus?.() ?? {
+        module: 'open_research',
+        state: 'skeleton_ready',
+      },
       this.workflow.getStatus(),
     ];
   }
@@ -734,6 +782,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     intent: IntentOutput,
     intentMeta: WorkflowNodeExecutionMeta | undefined,
     renderPerTargetReport: boolean,
+    conversationHistoryRaw: string | null | undefined,
     onStageEvent?: (event: WorkflowStageEvent) => void,
   ) {
     return this.workflow.run(
@@ -745,6 +794,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         intent,
         intentMeta,
         renderPerTargetReport,
+        conversationHistoryRaw,
       },
       {
         onStageEvent,
@@ -784,11 +834,19 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           : 'Worker accepted the job and is preparing the analysis context.',
       ),
     });
-    this.emitProgressEvent(data.requestId, 'job_started', 'pending', request.lang, {
-      queue: this.analyzeQueue.isQueueEnabled() ? 'bullmq' : 'inline_fallback',
-      targetCount: data.targets.length,
-      phase: data.targets.length > 0 ? 'workflow_execution' : 'preparation',
-    });
+    this.emitProgressEvent(
+      data.requestId,
+      'job_started',
+      'pending',
+      request.lang,
+      {
+        queue: this.analyzeQueue.isQueueEnabled()
+          ? 'bullmq'
+          : 'inline_fallback',
+        targetCount: data.targets.length,
+        phase: data.targets.length > 0 ? 'workflow_execution' : 'preparation',
+      },
+    );
 
     let executionData = data;
 
@@ -806,22 +864,17 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       executionData = prepared;
       const orchestrationIntent = executionData.intentHint as IntentOutput;
       const orchestrationIntentMeta = executionData.intentMeta;
-      await this.updateRequestProgress(
-        request,
-        'intent_done',
-        'pending',
-        {
-          note: this.localize(
-            request.lang,
-            executionData.targets.length > 0
-              ? '问题已理解，准备开始规划分析步骤。'
-              : '问题已理解，开始识别分析标的。',
-            executionData.targets.length > 0
-              ? 'Question understood. Preparing the analysis plan.'
-              : 'Question understood. Starting target resolution.',
-          ),
-        },
-      );
+      await this.updateRequestProgress(request, 'intent_done', 'pending', {
+        note: this.localize(
+          request.lang,
+          executionData.targets.length > 0
+            ? '问题已理解，准备开始规划分析步骤。'
+            : '问题已理解，开始识别分析标的。',
+          executionData.targets.length > 0
+            ? 'Question understood. Preparing the analysis plan.'
+            : 'Question understood. Starting target resolution.',
+        ),
+      });
       this.emitProgressEvent(
         executionData.requestId,
         'intent_done',
@@ -833,19 +886,14 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           focusAreas: orchestrationIntent.focusAreas,
         },
       );
-      await this.updateRequestProgress(
-        request,
-        'workflow_started',
-        'pending',
-        {
-          note: this.localize(
-            request.lang,
-            '已完成准备，开始执行分析工作流。',
-            'Preparation completed. Starting the analysis workflow.',
-          ),
-          targets: executionData.targets,
-        },
-      );
+      await this.updateRequestProgress(request, 'workflow_started', 'pending', {
+        note: this.localize(
+          request.lang,
+          '已完成准备，开始执行分析工作流。',
+          'Preparation completed. Starting the analysis workflow.',
+        ),
+        targets: executionData.targets,
+      });
       this.emitProgressEvent(
         executionData.requestId,
         'workflow_started',
@@ -867,6 +915,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
             orchestrationIntent,
             orchestrationIntentMeta,
             orchestrationIntent.taskType !== 'comparison',
+            executionData.conversationHistoryRaw,
             (stageEvent) => {
               const streamEvent = this.stageEventToStreamEvent(stageEvent);
               void this.refreshRequestProgress(
@@ -918,7 +967,10 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         targetPipelines.length,
       );
       const comparison = shouldCompare
-        ? this.comparison.buildComparisonSummary(executionData.query, targetPipelines)
+        ? this.comparison.buildComparisonSummary(
+            executionData.query,
+            targetPipelines,
+          )
         : null;
       const primaryPipeline = shouldCompare
         ? comparison?.winner
@@ -963,6 +1015,9 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
               orchestrationIntent,
             )
           : primaryPipeline.report);
+      let conversationHistoryRaw = executionData.threadId
+        ? await this.buildDeepConversationTranscript(executionData.threadId)
+        : (executionData.conversationHistoryRaw ?? '');
 
       const current = await this.requestState.get(executionData.requestId);
       if (!current) {
@@ -998,6 +1053,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           entities: orchestrationIntent.entities,
           memoThreadId: executionData.threadId,
         },
+        conversationHistoryRaw,
         targetPipelines: shouldCompare
           ? []
           : targetPipelines.map((item) => ({
@@ -1031,6 +1087,17 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       };
 
       if (executionData.threadId && executionData.threadId.trim().length > 0) {
+        await this.appendDeepConversationTurn({
+          threadId: executionData.threadId,
+          requestId: executionData.requestId,
+          role: 'assistant',
+          content: [report.title, report.executiveSummary, report.body]
+            .filter((item) => item && item.trim().length > 0)
+            .join('\n\n'),
+        });
+        conversationHistoryRaw = await this.buildDeepConversationTranscript(
+          executionData.threadId,
+        );
         this.intentMemo.save({
           threadId: executionData.threadId,
           intent: orchestrationIntent,
@@ -1081,7 +1148,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
         'failed',
         current.lang,
         {
-        errorMessage: message,
+          errorMessage: message,
         },
       );
       this.requestState.completeEventStream(executionData.requestId);
@@ -1100,10 +1167,16 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       ),
       mode: data.mode,
     });
-    this.emitProgressEvent(data.requestId, 'analysis_started', 'pending', request.lang, {
-      mode: data.mode,
-      threadId: data.threadId,
-    });
+    this.emitProgressEvent(
+      data.requestId,
+      'analysis_started',
+      'pending',
+      request.lang,
+      {
+        mode: data.mode,
+        threadId: data.threadId,
+      },
+    );
 
     const reply = await this.instantChat.reply({
       threadId: data.threadId ?? this.normalizeOrCreateThreadId(null),
@@ -1121,12 +1194,18 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       ),
       mode: data.mode,
     });
-    this.emitProgressEvent(data.requestId, 'analysis_done', 'pending', request.lang, {
-      mode: data.mode,
-      usedPreviousResponseId: reply.usedPreviousResponseId,
-      usedLocalFallback: reply.usedLocalFallback,
-      model: reply.model,
-    });
+    this.emitProgressEvent(
+      data.requestId,
+      'analysis_done',
+      'pending',
+      request.lang,
+      {
+        mode: data.mode,
+        usedPreviousResponseId: reply.usedPreviousResponseId,
+        usedLocalFallback: reply.usedLocalFallback,
+        model: reply.model,
+      },
+    );
 
     await this.updateRequestProgress(request, 'report_started', 'pending', {
       note: this.localize(
@@ -1136,10 +1215,16 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       ),
       mode: data.mode,
     });
-    this.emitProgressEvent(data.requestId, 'report_started', 'pending', request.lang, {
-      mode: data.mode,
-      model: reply.model,
-    });
+    this.emitProgressEvent(
+      data.requestId,
+      'report_started',
+      'pending',
+      request.lang,
+      {
+        mode: data.mode,
+        model: reply.model,
+      },
+    );
 
     await this.updateRequestProgress(request, 'report_done', 'pending', {
       note: this.localize(
@@ -1149,10 +1234,16 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       ),
       mode: data.mode,
     });
-    this.emitProgressEvent(data.requestId, 'report_done', 'pending', request.lang, {
-      mode: data.mode,
-      model: reply.model,
-    });
+    this.emitProgressEvent(
+      data.requestId,
+      'report_done',
+      'pending',
+      request.lang,
+      {
+        mode: data.mode,
+        model: reply.model,
+      },
+    );
 
     request.status = 'ready';
     request.timeWindow = reply.timeWindow;
@@ -1209,11 +1300,17 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
           'Understanding the user question and analysis objective.',
         ),
       });
-      this.emitProgressEvent(data.requestId, 'intent_started', 'pending', request.lang, {
-        query: data.query,
-        timeWindow: data.timeWindow,
-        preferredChain: data.preferredChain,
-      });
+      this.emitProgressEvent(
+        data.requestId,
+        'intent_started',
+        'pending',
+        request.lang,
+        {
+          query: data.query,
+          timeWindow: data.timeWindow,
+          preferredChain: data.preferredChain,
+        },
+      );
     }
     const intentResult =
       data.intentHint && data.intentMeta
@@ -1233,10 +1330,15 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
 
     request.intentHint = intentHint;
     request.intentMeta = intentMeta;
+    const conversationHistoryRaw =
+      data.threadId && data.threadId.trim().length > 0
+        ? await this.buildDeepConversationTranscript(data.threadId)
+        : null;
 
     if (data.targets.length > 0) {
       return {
         ...data,
+        conversationHistoryRaw,
         intentHint,
         intentMeta,
       };
@@ -1498,6 +1600,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     return {
       ...data,
       targets: readyTargets,
+      conversationHistoryRaw,
       intentHint,
       intentMeta,
     };
@@ -1718,7 +1821,9 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       .trim();
   }
 
-  private normalizeOrCreateThreadId(threadId: string | null | undefined): string {
+  private normalizeOrCreateThreadId(
+    threadId: string | null | undefined,
+  ): string {
     const normalized = threadId?.trim();
     if (normalized) {
       return normalized;
@@ -1726,7 +1831,9 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
     return randomUUID();
   }
 
-  private toIdentityFromCandidate(candidate: AnalyzeCandidate): AnalyzeIdentity {
+  private toIdentityFromCandidate(
+    candidate: AnalyzeCandidate,
+  ): AnalyzeIdentity {
     return {
       symbol: candidate.symbol,
       chain: candidate.chain,
@@ -1761,6 +1868,29 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       errorCode: request.errorCode,
       candidates: request.candidates,
     };
+  }
+
+  private async appendDeepConversationTurn(input: {
+    threadId: string;
+    requestId: string;
+    role: 'user' | 'assistant';
+    content: string;
+  }): Promise<void> {
+    if (!this.deepConversation?.appendTurn) {
+      return;
+    }
+
+    await this.deepConversation.appendTurn(input);
+  }
+
+  private async buildDeepConversationTranscript(
+    threadId: string,
+  ): Promise<string> {
+    if (!this.deepConversation?.buildRawTranscript) {
+      return '';
+    }
+
+    return this.deepConversation.buildRawTranscript(threadId);
   }
 
   private emitProgressEvent(

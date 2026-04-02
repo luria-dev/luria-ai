@@ -63,8 +63,22 @@ describe('AnalysisNodeService', () => {
         constraints: [],
       },
       plan: {
+        taskDisposition: 'analyze',
+        primaryIntent: 'Explain what is happening around ETH.',
+        subTasks: ['what changed around ETH'],
+        responseMode: 'explain',
         requirements: [],
         analysisQuestions: ['What is the current setup?'],
+        openResearch: {
+          enabled: true,
+          depth: 'standard',
+          priority: 'low',
+          reason: 'Not needed in this test.',
+          topics: [],
+          goals: [],
+          preferredSources: [],
+          mustUseInReport: true,
+        },
       },
       execution: {
         identity: {
@@ -121,6 +135,18 @@ describe('AnalysisNodeService', () => {
               currentAnnualPct: 3.5,
               targetAnnualPct: null,
               isDynamic: false,
+            },
+            burns: {
+              totalBurnAmount: null,
+              recentBurns: [],
+            },
+            buybacks: {
+              totalBuybackAmount: null,
+              recentBuybacks: [],
+            },
+            fundraising: {
+              totalRaised: null,
+              rounds: [],
             },
             evidence: [],
             evidenceConflicts: [],

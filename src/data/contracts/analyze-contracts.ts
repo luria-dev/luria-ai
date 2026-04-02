@@ -63,6 +63,30 @@ export type NewsSnapshot = {
   degradeReason?: string;
 };
 
+export type OpenResearchItem = {
+  title: string;
+  url: string;
+  source: string;
+  snippet: string | null;
+  publishedAt: string | null;
+  topic: string;
+  relevanceScore: number;
+};
+
+export type OpenResearchSnapshot = {
+  enabled: boolean;
+  query: string;
+  topics: string[];
+  goals: string[];
+  preferredSources: string[];
+  takeaways: string[];
+  items: OpenResearchItem[];
+  asOf: string;
+  sourceUsed: string[];
+  degraded: boolean;
+  degradeReason?: string;
+};
+
 export type TokenAllocation = {
   teamPct: number | null;
   investorPct: number | null;

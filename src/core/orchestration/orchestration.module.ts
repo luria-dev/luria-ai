@@ -14,9 +14,11 @@ import { StrategyModule } from '../../modules/strategy/strategy.module';
 import { ReporterModule } from '../../modules/reporter/reporter.module';
 import { NewsModule } from '../../modules/data/news/news.module';
 import { WorkflowModule } from '../../modules/workflow/workflow.module';
+import { OpenResearchModule } from '../../modules/data/open-research/open-research.module';
 import { RequestStateService } from './services/request-state.service';
 import { AnalyzeQueueService } from './services/analyze-queue.service';
 import { ComparisonService } from './services/comparison.service';
+import { DeepConversationService } from './services/deep-conversation.service';
 import { InstantConversationService } from './services/instant-conversation.service';
 import { InstantChatService } from './services/instant-chat.service';
 
@@ -36,11 +38,13 @@ import { InstantChatService } from './services/instant-chat.service';
     StrategyModule,
     ReporterModule,
     WorkflowModule,
+    OpenResearchModule,
   ],
   providers: [
     RequestStateService,
     AnalyzeQueueService,
     ComparisonService,
+    DeepConversationService,
     InstantConversationService,
     InstantChatService,
     AnalyzeOrchestratorService,

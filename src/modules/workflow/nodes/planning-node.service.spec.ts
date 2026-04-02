@@ -45,7 +45,7 @@ describe('PlanningNodeService', () => {
     constraints: ['hard_risk_controls'],
   };
 
-  it('should include mandatory requirements in fallback plan', async () => {
+  it('should build an action-oriented fallback plan for execution questions', async () => {
     const service = new PlanningNodeService(runtimeStub as LlmRuntimeService);
     const result = await service.build({
       intent: baseIntent,
@@ -58,20 +58,22 @@ describe('PlanningNodeService', () => {
     });
 
     const dataTypes = result.requirements.map((item) => item.dataType);
+    expect(result.taskDisposition).toBe('analyze');
+    expect(result.responseMode).toBe('act');
     expect(dataTypes).toContain('price');
     expect(dataTypes).toContain('security');
-    expect(dataTypes).toContain('liquidity');
     expect(dataTypes).toContain('technical');
     expect(dataTypes).toContain('onchain');
-    expect(dataTypes).toContain('sentiment');
+    expect(result.openResearch.enabled).toBe(true);
     expect(result.analysisQuestions.length).toBeGreaterThan(0);
   });
 
-  it('should keep sentiment required even for tokenomics-focused fallback plans', async () => {
+  it('should keep explanatory tokenomics questions in explain mode', async () => {
     const service = new PlanningNodeService(runtimeStub as LlmRuntimeService);
     const result = await service.build({
       intent: {
         ...baseIntent,
+        userQuery: 'Explain BTC tokenomics and how the current narrative is evolving.',
         objective: 'market_overview',
         focusAreas: ['price_action', 'tokenomics'],
       },
@@ -84,7 +86,38 @@ describe('PlanningNodeService', () => {
     });
 
     const dataTypes = result.requirements.map((item) => item.dataType);
-    expect(dataTypes).toContain('tokenomics');
+    expect(result.taskDisposition).toBe('analyze');
+    expect(result.responseMode).toBe('explain');
+    expect(result.subTasks.length).toBeGreaterThan(0);
+    expect(dataTypes).toContain('news');
     expect(dataTypes).toContain('sentiment');
+  });
+
+  it('should classify investment-value questions as assess mode', async () => {
+    const service = new PlanningNodeService(runtimeStub as LlmRuntimeService);
+    const result = await service.build({
+      intent: {
+        ...baseIntent,
+        userQuery: 'Is BTC still worth investing in and what is the biggest risk?',
+        objective: 'market_overview',
+        focusAreas: ['price_action', 'project_fundamentals'],
+      },
+      identity: {
+        symbol: 'BTC',
+        chain: 'bitcoin',
+        tokenAddress: '',
+        sourceId: 'coingecko:bitcoin',
+      },
+    });
+
+    expect(result.taskDisposition).toBe('analyze');
+    expect(result.responseMode).toBe('assess');
+    expect(
+      result.analysisQuestions.some((question) =>
+        question.toLowerCase().includes('investment case'),
+      ),
+    ).toBe(true);
+    expect(result.openResearch.enabled).toBe(true);
+    expect(result.openResearch.depth).toBe('heavy');
   });
 });

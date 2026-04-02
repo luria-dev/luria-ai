@@ -5,6 +5,7 @@ import {
   FundamentalsSnapshot,
   LiquiditySnapshot,
   NewsSnapshot,
+  OpenResearchSnapshot,
   PriceSnapshot,
   SecuritySnapshot,
   SentimentSnapshot,
@@ -27,8 +28,10 @@ import { SecurityService } from '../../data/security/security.service';
 import { LiquidityService } from '../../data/liquidity/liquidity.service';
 import { SentimentService } from '../../data/sentiment/sentiment.service';
 import { DataCacheService } from '../../data/cache/data-cache.service';
+import { OpenResearchService } from '../../data/open-research/open-research.service';
 
 type ExecuteInput = {
+  query: string;
   plan: PlanOutput;
   identity: AnalyzeIdentity;
   timeWindow: '24h' | '7d' | '30d';
@@ -50,6 +53,7 @@ export class DataExecutorNodeService {
     private readonly security: SecurityService,
     private readonly liquidity: LiquidityService,
     private readonly sentiment: SentimentService,
+    private readonly openResearch: OpenResearchService,
     private readonly cache: DataCacheService,
   ) {}
 
@@ -80,7 +84,10 @@ export class DataExecutorNodeService {
       'liquidity',
       'sentiment',
     ];
-    const executedTypes = this.unique([...requestedTypes, ...strategyMandatory]);
+    const executedTypes = this.unique([
+      ...requestedTypes,
+      ...strategyMandatory,
+    ]);
 
     const routing = executedTypes.map((dataType) => {
       const requirement = input.plan.requirements.find(
@@ -99,12 +106,12 @@ export class DataExecutorNodeService {
       routing.map((item) => [item.dataType, item.selectedSource]),
     );
     const selectedSource = (dataType: DataType): string =>
-      selectedSourceByType.get(dataType) ??
-      this.selectSource(dataType, []);
+      selectedSourceByType.get(dataType) ?? this.selectSource(dataType, []);
 
     const [
       priceSnapshot,
       newsSnapshot,
+      openResearchSnapshot,
       tokenomicsSnapshot,
       fundamentalsSnapshot,
       technicalSnapshot,
@@ -124,6 +131,25 @@ export class DataExecutorNodeService {
         () => this.news.fetchLatest(input.identity),
         () => this.buildFallbackNews('NEWS_NOT_REQUESTED'),
         () => this.buildFallbackNews('NEWS_FETCH_FAILED'),
+      ),
+      this.runFetch(
+        input.plan.openResearch.enabled,
+        () =>
+          this.openResearch.fetchSnapshot({
+            query: input.query,
+            identity: input.identity,
+            depth: input.plan.openResearch.depth,
+            topics: input.plan.openResearch.topics,
+            goals: input.plan.openResearch.goals,
+            preferredSources: input.plan.openResearch.preferredSources,
+          }),
+        () =>
+          this.buildFallbackOpenResearch(input.plan, 'OPEN_RESEARCH_DISABLED'),
+        () =>
+          this.buildFallbackOpenResearch(
+            input.plan,
+            'OPEN_RESEARCH_FETCH_FAILED',
+          ),
       ),
       this.runFetch(
         executedTypes.includes('tokenomics'),
@@ -255,6 +281,7 @@ export class DataExecutorNodeService {
       data: {
         market: { price: priceSnapshot },
         news: newsSnapshot,
+        openResearch: openResearchSnapshot,
         tokenomics: tokenomicsSnapshot,
         fundamentals: fundamentalsSnapshot,
         technical: technicalSnapshot,
@@ -301,17 +328,17 @@ export class DataExecutorNodeService {
       return sourceHint[0];
     }
 
-      const defaults: Record<DataType, string> = {
-        price: 'coingecko',
-        news: 'coindesk',
-        tokenomics: 'tokenomist',
-        fundamentals: 'rootdata',
-        technical: 'coingecko',
-        onchain: 'santiment',
-        security: 'goplus',
-        liquidity: 'geckoterminal',
-        sentiment: 'santiment',
-      };
+    const defaults: Record<DataType, string> = {
+      price: 'coingecko',
+      news: 'coindesk',
+      tokenomics: 'tokenomist',
+      fundamentals: 'rootdata',
+      technical: 'coingecko',
+      onchain: 'santiment',
+      security: 'goplus',
+      liquidity: 'geckoterminal',
+      sentiment: 'santiment',
+    };
     return defaults[dataType];
   }
 
@@ -386,6 +413,25 @@ export class DataExecutorNodeService {
       degraded: true,
       degradeReason: reason,
       tokenomicsEvidenceInsufficient: true,
+    };
+  }
+
+  private buildFallbackOpenResearch(
+    plan: PlanOutput,
+    reason: string,
+  ): OpenResearchSnapshot {
+    return {
+      enabled: plan.openResearch.enabled,
+      query: '',
+      topics: plan.openResearch.topics,
+      goals: plan.openResearch.goals,
+      preferredSources: plan.openResearch.preferredSources,
+      takeaways: [],
+      items: [],
+      asOf: new Date().toISOString(),
+      sourceUsed: [],
+      degraded: true,
+      degradeReason: reason,
     };
   }
 
