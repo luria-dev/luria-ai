@@ -251,6 +251,7 @@ export class ReportNodeService {
         priceUsd: price.priceUsd,
         change24hPct: price.change24hPct,
         change7dPct: price.change7dPct,
+        change30dPct: price.change30dPct,
         volume24hUsd: price.totalVolume24hUsd,
         marketCapRank: price.marketCapRank,
         marketCapUsd: price.marketCapUsd ?? null,
@@ -309,6 +310,12 @@ export class ReportNodeService {
           swingLow: technical.swingLow,
         },
         onchain: onchain.signal,
+        onchainDetails: {
+          inflowUsd: onchain.inflowUsd,
+          outflowUsd: onchain.outflowUsd,
+          netflowUsd: onchain.netflowUsd,
+          exchangeCount: onchain.exchanges.length,
+        },
         sentiment: sentiment.signal,
         sentimentDetails: {
           socialVolume: sentiment.socialVolume,
@@ -333,11 +340,21 @@ export class ReportNodeService {
         fundamentalsTags: fundamentals.profile.tags,
       },
       fundamentals: {
+        description: fundamentals.profile.description,
+        establishmentDate: fundamentals.profile.establishmentDate,
         totalFundingUsd: fundamentals.profile.totalFundingUsd,
         rtScore: fundamentals.profile.rtScore,
         tvlScore: fundamentals.profile.tvlScore,
         investorCount: fundamentals.investors.length,
         topInvestors: fundamentals.investors.map((item) => item.name).slice(0, 5),
+        investorDetails: fundamentals.investors.slice(0, 8).map((item) => ({
+          name: item.name,
+          type: item.type,
+        })),
+        teamHighlights: fundamentals.team.slice(0, 8).map((item) => ({
+          name: item.name,
+          position: item.position,
+        })),
         fundraisingCount: fundamentals.fundraising.length,
         latestRound:
           fundamentals.fundraising.length > 0
@@ -348,6 +365,13 @@ export class ReportNodeService {
                 investors: fundamentals.fundraising[0]?.investors ?? [],
               }
             : null,
+        recentRounds: fundamentals.fundraising.slice(0, 6).map((round) => ({
+          round: round.round,
+          amountUsd: round.amountUsd,
+          valuationUsd: round.valuationUsd,
+          publishedAt: round.publishedAt,
+          investors: round.investors,
+        })),
         ecosystemCount:
           fundamentals.ecosystems.ecosystems.length +
           fundamentals.ecosystems.onMainNet.length +
@@ -359,6 +383,12 @@ export class ReportNodeService {
           ...fundamentals.ecosystems.onTestNet,
           ...fundamentals.ecosystems.planToLaunch,
         ].slice(0, 6),
+        ecosystemBreakdown: {
+          ecosystems: fundamentals.ecosystems.ecosystems.slice(0, 8),
+          onMainNet: fundamentals.ecosystems.onMainNet.slice(0, 8),
+          onTestNet: fundamentals.ecosystems.onTestNet.slice(0, 8),
+          planToLaunch: fundamentals.ecosystems.planToLaunch.slice(0, 8),
+        },
         socialFollowers: fundamentals.social.followers,
         hotIndexScore: fundamentals.social.hotIndexScore,
         socialLinks: fundamentals.social.socialLinks,
@@ -421,6 +451,18 @@ export class ReportNodeService {
         ),
       },
       tokenomics: {
+        allocation: tokenomics.allocation,
+        vestingSchedule: tokenomics.vestingSchedule.slice(0, 8).map((item) => ({
+          bucket: item.bucket,
+          start: item.start,
+          cliffMonths: item.cliffMonths,
+          unlockFrequency: item.unlockFrequency,
+          end: item.end,
+        })),
+        sourceUsed: tokenomics.sourceUsed,
+        evidenceFields: tokenomics.evidence.map((item) => item.field),
+        evidenceSources: tokenomics.evidence.map((item) => item.sourceName),
+        evidenceInsufficient: tokenomics.tokenomicsEvidenceInsufficient,
         burns: {
           totalBurnAmount: tokenomicsBurns.totalBurnAmount,
           recentBurnCount: tokenomicsBurns.recentBurns.length,
@@ -429,6 +471,12 @@ export class ReportNodeService {
             tokenomicsBurns,
             input.intent.language === 'zh',
           ),
+          recentBurns: tokenomicsBurns.recentBurns.slice(0, 8).map((item) => ({
+            burnEventLabel: item.burnEventLabel,
+            burnType: item.burnType,
+            burnDate: item.burnDate,
+            amount: item.amount,
+          })),
         },
         buybacks: {
           totalBuybackAmount: tokenomicsBuybacks.totalBuybackAmount,
@@ -439,6 +487,16 @@ export class ReportNodeService {
             tokenomicsBuybacks,
             input.intent.language === 'zh',
           ),
+          recentBuybacks: tokenomicsBuybacks.recentBuybacks
+            .slice(0, 8)
+            .map((item) => ({
+              buybackEventLabel: item.buybackEventLabel,
+              buybackType: item.buybackType,
+              buybackDate: item.buybackDate,
+              tokenAmount: item.tokenAmount,
+              spentAmount: item.spentAmount,
+              spentUnit: item.spentUnit,
+            })),
         },
         fundraising: {
           totalRaised: tokenomicsFundraising.totalRaised,
@@ -448,6 +506,14 @@ export class ReportNodeService {
             tokenomicsFundraising,
             input.intent.language === 'zh',
           ),
+          recentRounds: tokenomicsFundraising.rounds.slice(0, 8).map((item) => ({
+            roundName: item.roundName,
+            fundingDate: item.fundingDate,
+            amountRaised: item.amountRaised,
+            currency: item.currency,
+            valuation: item.valuation,
+            investors: item.investors,
+          })),
         },
       },
     };
@@ -1827,6 +1893,8 @@ export class ReportNodeService {
 
     const tokenomics = input.execution.data.tokenomics;
     const hasRichTokenomics =
+      Object.values(tokenomics.allocation).some((value) => value !== null) ||
+      tokenomics.vestingSchedule.length > 0 ||
       tokenomics.burns.recentBurns.length > 0 ||
       tokenomics.buybacks.recentBuybacks.length > 0 ||
       tokenomics.fundraising.rounds.length > 0;
@@ -1839,6 +1907,14 @@ export class ReportNodeService {
         '回购',
         'fundraising',
         '融资',
+        'allocation',
+        '分配',
+        'vesting',
+        '解锁',
+        'team',
+        'investor',
+        'community',
+        'foundation',
       ])
     ) {
       this.logger.warn(
