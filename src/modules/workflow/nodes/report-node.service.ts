@@ -24,6 +24,16 @@ const reportNarrativeSchema = z.object({
 
 type ReportNarrative = z.infer<typeof reportNarrativeSchema>;
 
+type ResearchFactRow = {
+  theme: string;
+  date: string | null;
+  source: string;
+  subject: string;
+  action: string;
+  result: string;
+  verification: 'verified' | 'directional';
+};
+
 type RenderReportInput = {
   intent: IntentOutput;
   plan: PlanOutput;
@@ -217,6 +227,7 @@ export class ReportNodeService {
     };
     const fundamentals = execution.data.fundamentals;
     const sentiment = execution.data.sentiment;
+    const researchFacts = this.buildResearchFacts(input);
 
     const context: ReportPromptContext = {
       language: input.intent.language,
@@ -279,11 +290,13 @@ export class ReportNodeService {
             title: item.title,
             source: item.source,
             topic: item.topic,
+            publishedAt: item.publishedAt,
             snippet: item.snippet,
             url: item.url,
           })),
         },
       },
+      researchFacts,
       signals: {
         technical: technical.summarySignal,
         technicalDetails: {
@@ -547,6 +560,194 @@ export class ReportNodeService {
     return intent.language === 'zh'
       ? `请只针对 ${symbol} 输出独立分析报告，不要比较、排序，也不要提及其他标的。`
       : `Produce an independent report only for ${symbol}. Do not compare, rank, or mention other assets.`;
+  }
+
+  private buildResearchFacts(input: RenderReportInput): {
+    rows: ResearchFactRow[];
+    expansionTargets: string[];
+  } {
+    const { execution } = input;
+    const symbol = execution.identity.symbol;
+    const rows: ResearchFactRow[] = [];
+    const pushRow = (row: ResearchFactRow | null) => {
+      if (!row || !row.action || !row.result) {
+        return;
+      }
+      rows.push(row);
+    };
+
+    for (const item of execution.data.news.items.slice(0, 5)) {
+      pushRow({
+        theme: 'news_timeline',
+        date: item.publishedAt,
+        source: item.source,
+        subject: symbol,
+        action: item.title,
+        result: item.category,
+        verification: 'verified',
+      });
+    }
+
+    for (const item of execution.data.openResearch?.items.slice(0, 8) ?? []) {
+      pushRow({
+        theme: item.topic || 'open_research',
+        date: item.publishedAt,
+        source: item.source,
+        subject: symbol,
+        action: item.title,
+        result: item.snippet ?? item.url,
+        verification: item.publishedAt ? 'verified' : 'directional',
+      });
+    }
+
+    for (const round of execution.data.fundamentals.fundraising.slice(0, 5)) {
+      const resultParts = [
+        round.amountUsd !== null ? `$${round.amountUsd.toLocaleString()}` : null,
+        round.valuationUsd !== null
+          ? `valuation $${round.valuationUsd.toLocaleString()}`
+          : null,
+        round.investors.length > 0 ? round.investors.slice(0, 4).join(', ') : null,
+      ].filter(Boolean);
+      pushRow({
+        theme: 'fundraising_round',
+        date: round.publishedAt,
+        source: 'rootdata',
+        subject: symbol,
+        action: round.round ?? 'Fundraising round',
+        result: resultParts.join(' / '),
+        verification: round.publishedAt ? 'verified' : 'directional',
+      });
+    }
+
+    for (const investor of execution.data.fundamentals.investors.slice(0, 6)) {
+      pushRow({
+        theme: 'investor',
+        date: null,
+        source: 'rootdata',
+        subject: symbol,
+        action: investor.name,
+        result: investor.type ?? 'Investor listed',
+        verification: 'verified',
+      });
+    }
+
+    for (const burn of execution.data.tokenomics.burns?.recentBurns.slice(0, 5) ??
+      []) {
+      pushRow({
+        theme: 'burn',
+        date: burn.burnDate,
+        source: 'tokenomist',
+        subject: symbol,
+        action: `${burn.burnEventLabel} (${burn.burnType})`,
+        result: `${burn.amount.toLocaleString()} tokens burned`,
+        verification: 'verified',
+      });
+    }
+
+    for (const buyback of execution.data.tokenomics.buybacks?.recentBuybacks.slice(
+      0,
+      5,
+    ) ?? []) {
+      const resultParts = [
+        buyback.tokenAmount !== null
+          ? `${buyback.tokenAmount.toLocaleString()} tokens`
+          : null,
+        buyback.spentAmount !== null
+          ? `${buyback.spentAmount.toLocaleString()} ${buyback.spentUnit}`
+          : null,
+      ].filter(Boolean);
+      pushRow({
+        theme: 'buyback',
+        date: buyback.buybackDate,
+        source: 'tokenomist',
+        subject: symbol,
+        action: `${buyback.buybackEventLabel} (${buyback.buybackType})`,
+        result: resultParts.join(' / '),
+        verification: 'verified',
+      });
+    }
+
+    for (const round of execution.data.tokenomics.fundraising?.rounds.slice(0, 5) ??
+      []) {
+      const resultParts = [
+        `${round.amountRaised.toLocaleString()} ${round.currency}`,
+        round.valuation !== null
+          ? `valuation ${round.valuation.toLocaleString()}`
+          : null,
+        round.investors.length > 0 ? round.investors.slice(0, 4).join(', ') : null,
+      ].filter(Boolean);
+      pushRow({
+        theme: 'tokenomics_fundraising',
+        date: round.fundingDate,
+        source: 'rootdata',
+        subject: symbol,
+        action: round.roundName,
+        result: resultParts.join(' / '),
+        verification: round.fundingDate ? 'verified' : 'directional',
+      });
+    }
+
+    for (const vesting of execution.data.tokenomics.vestingSchedule.slice(0, 5)) {
+      pushRow({
+        theme: 'vesting',
+        date: vesting.start,
+        source: execution.data.tokenomics.sourceUsed[0] ?? 'tokenomist',
+        subject: symbol,
+        action: vesting.bucket,
+        result: `${vesting.cliffMonths}m cliff / ${vesting.unlockFrequency} / end ${vesting.end}`,
+        verification: 'verified',
+      });
+    }
+
+    if (execution.data.onchain.cexNetflow.netflowUsd !== null) {
+      pushRow({
+        theme: 'onchain_netflow',
+        date: execution.asOf,
+        source: 'santiment',
+        subject: symbol,
+        action: 'Exchange netflow',
+        result: `$${execution.data.onchain.cexNetflow.netflowUsd.toLocaleString()}`,
+        verification: 'verified',
+      });
+    }
+
+    for (const venue of (execution.data.liquidity.topVenues ?? []).slice(0, 5)) {
+      const resultParts = [
+        venue.marketSharePct !== null
+          ? `${venue.marketSharePct.toFixed(1)}% share`
+          : null,
+        venue.volume24hUsd !== null
+          ? `$${venue.volume24hUsd.toLocaleString()} 24h volume`
+          : null,
+        venue.liquidityUsd !== null
+          ? `$${venue.liquidityUsd.toLocaleString()} liquidity`
+          : null,
+      ].filter(Boolean);
+      pushRow({
+        theme: 'liquidity_venue',
+        date: execution.asOf,
+        source: venue.sourceId ?? 'liquidity',
+        subject: symbol,
+        action: `${venue.venueName ?? venue.venueType} / ${venue.pairLabel}`,
+        result: resultParts.join(' / '),
+        verification: 'verified',
+      });
+    }
+
+    const expansionTargets = [
+      '融资轮次',
+      '投资方',
+      '回购/销毁',
+      '解锁',
+      '链上净流向',
+      '主要交易场所份额',
+      '官方动态时间线',
+    ];
+
+    return {
+      rows: rows.slice(0, 28),
+      expansionTargets,
+    };
   }
 
   private buildDeterministicReport(input: RenderReportInput): ReportOutput {

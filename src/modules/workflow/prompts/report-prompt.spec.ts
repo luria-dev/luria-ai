@@ -69,11 +69,43 @@ describe('buildReportPrompts', () => {
               title: 'BNB auto-burn update',
               source: 'Binance',
               topic: 'buybacks',
+              publishedAt: '2026-03-30',
               snippet: 'Latest burn disclosed',
               url: 'https://example.com/research',
             },
           ],
         },
+      },
+      researchFacts: {
+        rows: [
+          {
+            theme: 'buyback',
+            date: '2026-03-30',
+            source: 'binance',
+            subject: 'BNB',
+            action: 'BEP-95 auto-burn',
+            result: '2.12 tokens burned',
+            verification: 'verified',
+          },
+          {
+            theme: 'liquidity_venue',
+            date: '2026-04-03',
+            source: 'binance',
+            subject: 'BNB',
+            action: 'Binance / BNB/USDT',
+            result: '$163M 24h volume / 14.8% share',
+            verification: 'verified',
+          },
+        ],
+        expansionTargets: [
+          '融资轮次',
+          '投资方',
+          '回购/销毁',
+          '解锁',
+          '链上净流向',
+          '主要交易场所份额',
+          '官方动态时间线',
+        ],
       },
       signals: {
         technical: 'bearish',
@@ -291,6 +323,8 @@ describe('buildReportPrompts', () => {
     expect(prompts.systemPrompt).toContain('Prefer fewer, fuller paragraphs over many 1-2 sentence fragments');
     expect(prompts.systemPrompt).toContain('## Data Explanation');
     expect(prompts.systemPrompt).toContain('## Evidence-to-Prose Rules');
+    expect(prompts.systemPrompt).toContain('## Research Facts');
+    expect(prompts.systemPrompt).toContain('## High-Value Fact Expansion');
     expect(prompts.systemPrompt).toContain('## Anti-Abstraction Examples');
     expect(prompts.systemPrompt).toContain('## Final Pass');
     expect(prompts.systemPrompt).toContain('## Markdown Validity');
@@ -301,6 +335,12 @@ describe('buildReportPrompts', () => {
     expect(prompts.systemPrompt).toContain('Do not start the body directly with "##" or "###"');
     expect(prompts.systemPrompt).toContain(
       'Never start a table with a separator row like "|---|---|"',
+    );
+    expect(prompts.systemPrompt).toContain(
+      'prefer a compact table over a long enumerating paragraph',
+    );
+    expect(prompts.systemPrompt).toContain(
+      'Prefer many small, named sub-sections over one oversized explanation block',
     );
     expect(prompts.systemPrompt).toContain(
       'must be split into multiple "###" sub-sections, usually one sub-section per explicit question',
@@ -318,6 +358,16 @@ describe('buildReportPrompts', () => {
     );
     expect(prompts.userPrompt).toContain('Keep the Markdown structurally valid and stable across runs');
     expect(prompts.userPrompt).toContain('> **结论速览**');
+    expect(prompts.userPrompt).toContain('## Research Fact Rows');
+    expect(prompts.userPrompt).toContain('优先展开的事实类型');
+    expect(prompts.userPrompt).toContain('BEP-95 auto-burn');
+    expect(prompts.userPrompt).toContain('$163M 24h volume / 14.8% share');
+    expect(prompts.userPrompt).toContain(
+      'For relationship, value-capture, mechanism, or "有用但不涨" questions, build the answer around',
+    );
+    expect(prompts.userPrompt).toContain(
+      'Do not let one long paragraph carry several different evidence clusters',
+    );
     expect(prompts.userPrompt).toContain(
       'Do not answer multiple explicit questions using only inline bold prompts such as "**问题？**"',
     );

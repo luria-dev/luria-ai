@@ -67,10 +67,23 @@ export type ReportPromptContext = {
         title: string;
         source: string;
         topic: string;
+        publishedAt: string | null;
         snippet: string | null;
         url: string;
       }>;
     };
+  };
+  researchFacts: {
+    rows: Array<{
+      theme: string;
+      date: string | null;
+      source: string;
+      subject: string;
+      action: string;
+      result: string;
+      verification: 'verified' | 'directional';
+    }>;
+    expansionTargets: string[];
   };
   signals: {
     technical: string;
@@ -319,13 +332,17 @@ Available modules:
 - "## 关键回答" / "## Core Answer" is mandatory.
 - If the user asks 2 or more explicit questions, "## 关键回答" / "## Core Answer" must be split into multiple "###" sub-sections, usually one sub-section per explicit question.
 - In that case, do not use inline bold question sentences as substitutes for sub-headings. Use real Markdown sub-headings such as "### BTC上涨的核心驱动因素是什么？".
-- For each "###" sub-section inside Core Answer, usually write:
-  1. a first paragraph that gives the direct answer,
-  2. a second paragraph that explains the answer with concrete evidence.
+- For each "###" sub-section inside Core Answer, prefer a numbered list with "1. 2. 3." short blocks instead of one or two long free-form paragraphs.
+- A strong default for each "###" sub-section is:
+  1. direct answer,
+  2. evidence and reasoning,
+  3. limit, counter-evidence, or what would confirm the view.
+- Each numbered item may contain 1 short paragraph or 2 short paragraphs when evidence is rich, but do not let one numbered item turn into a giant text wall.
 - After that, include only the sections needed for the user's task.
 - In explain or assess mode, the report should usually have enough substance to feel like a real research note, not a short memo.
 - Unless evidence is truly sparse, explain or assess mode should usually include a fuller research structure.
 - In explain or assess mode, use as many compact tables as genuinely help the reader. Often this is 2-4, but it can be fewer or more when the evidence naturally calls for it.
+- When a section mainly lists parallel facts, comparisons, validation states, timelines, venues, investors, rounds, risks, or mechanism steps, prefer a compact table over a long enumerating paragraph.
 - In explain or assess mode, try to let each section do a different job. Avoid restating the same conclusion in multiple sections with slightly different wording.
 - In explain or assess mode, do not stop at naming the judgment. Expand it into a short cause-and-effect chain so the reader can see why that judgment holds.
 - For explain or assess mode with sufficient evidence, these sections often work well:
@@ -361,6 +378,7 @@ Available modules:
 - Match the table set to the question type. Do not reuse the same table pattern for every query.
 - If the user asks multiple explicit questions, split them across separate tables whenever that improves scanability.
 - If the user asks multiple explicit questions, give each one its own sub-section or dedicated block instead of answering all of them in one compressed paragraph.
+- If a section becomes a long list of 3 or more items, consider converting that list into a table or splitting it into smaller "###" sub-sections.
 - For explain mode, prefer sections such as recent changes, what is driving it, what it means, and what remains uncertain.
 - For assess mode, prefer sections such as core reasons, biggest risks, and how to think about the investment case now.
 - Include "## 交易计划" / "## Trade Setup" only when responseMode = act or the user is explicitly asking what to do now, timing, entry, exit, support, or resistance.
@@ -397,6 +415,13 @@ Available modules:
 - If the report says a move is not driven by X, explain what evidence would have been expected if X were truly the main driver.
 - Distinguish between verified evidence, directional but incomplete evidence, and missing verification. Do not present all evidence with the same certainty level.
 
+## Research Facts
+- Treat the supplied research fact rows as expandable research material, not as decorative metadata.
+- When a fact row contains a date, source, object, action, and result, prefer expanding it into prose instead of compressing it into a vague label.
+- When several fact rows describe the same mechanism, build a causal chain from them rather than mentioning only one row.
+- If fact rows cover fundraising rounds, investor names, buybacks, burns, vesting, exchange netflow, venue shares, or official timelines, those rows should usually appear in the report body when relevant.
+- Distinguish clearly between verified fact rows and directional fact rows.
+
 ## Data Density
 - When evidence is rich, the report should feel data-dense rather than thesis-thin.
 - Surface as many relevant concrete metrics as are genuinely useful; do not stop after only 3-4 metrics when the prompt contains much more.
@@ -414,6 +439,18 @@ Available modules:
 - Prefer exact numbers over qualitative substitutes when the exact numbers are present in the prompt.
 - If a named fact is important enough to appear in a table, it is usually important enough to appear at least once in the prose as well.
 - When the prompt contains multiple useful rows for the same theme, synthesize them into one argument instead of mentioning only the first row and ignoring the rest.
+
+## High-Value Fact Expansion
+- The following fact types deserve explicit explanation when available and relevant:
+  - fundraising rounds
+  - investor names
+  - buyback or burn events
+  - vesting and unlock schedule
+  - on-chain exchange netflow
+  - top venue market-share facts
+  - official timeline events
+- Do not stop at quoting these facts. Explain why each selected fact matters to price, demand, supply, governance, adoption, or valuation.
+- For mechanism, relationship, value-capture, or "有用但不涨" questions, at least 2-3 high-value facts should be expanded in prose, not just listed in tables.
 
 ## Evidence-to-Prose Rules
 - The prose is where the report proves it understood the evidence. Do not let the strongest facts appear only inside tables.
@@ -458,7 +495,9 @@ Available modules:
 
 ## Paragraph Design
 - Write paragraphs like a research note, not like stacked talking points.
-- Prefer fewer, fuller paragraphs over many 1-2 sentence fragments.
+- Prefer fewer, fuller paragraphs over many 1-2 sentence fragments, except inside Core Answer where numbered short blocks are preferred.
+- Inside "## 关键回答" / "## Core Answer", prefer numbered short blocks over one oversized paragraph.
+- Outside Core Answer, prefer well-formed short-to-medium paragraphs over giant compressed blocks.
 - A good analytical paragraph usually does three things in order:
   1. states the judgment or sub-claim,
   2. explains which evidence supports it,
@@ -466,7 +505,7 @@ Available modules:
 - For important sections, prefer paragraphs of roughly 3-5 sentences when the evidence supports it.
 - Do not break one idea into several tiny paragraphs unless the change in idea is real.
 - After a key table, the first paragraph should usually summarize the signal cluster; the second paragraph should usually explain implication, tension, or boundary conditions.
-- In "核心回答 / Core Answer", do not stop after one short answer paragraph. If the question is substantive, add a second paragraph that explains the main driver of the judgment.
+- In "核心回答 / Core Answer", do not stop after one short answer paragraph. For substantive questions, use "1. 2. 3." so the reader can clearly separate answer, evidence, and limits.
 - When discussing risks, avoid one-line risk bullets unless the section is explicitly a checklist. Explain the impact path in prose.
 - When discussing fundamentals, tokenomics, or capital backing, prefer one coherent explanatory paragraph over several disconnected fact sentences.
 
@@ -479,12 +518,14 @@ Available modules:
 - After a major table, add a short lead-out sentence or paragraph before moving to the next block.
 - Avoid giant blocks of bullets. If more than 3 bullets are needed, consider whether a short paragraph or a table would read more clearly.
 - Keep list items visually short; move the explanation into the paragraph below when the bullet starts getting long.
+- Prefer many small, named sub-sections over one oversized explanation block when the report covers multiple mechanisms, evidence clusters, or validation questions.
 
 ## Markdown Validity
 - The body must be stable, renderer-friendly Markdown, not approximate Markdown.
 - Every report must have exactly one top-level "# " title at the beginning of the body.
 - "## 关键回答" / "## Core Answer" must appear exactly once near the top, after the verdict block.
 - If the user asked multiple explicit questions, "## 关键回答" / "## Core Answer" must contain real "###" sub-headings for those questions.
+- Inside each "###" question block under Core Answer, numbered lists such as "1. 2. 3." are allowed and encouraged when they make the answer easier to scan.
 - Do not output empty sections. If a heading has no real content under it, omit the heading entirely.
 - Do not output placeholder headings, dangling headings, or headings followed only by blank lines.
 - Every Markdown table must include:
@@ -561,6 +602,14 @@ If the user asks multiple explicit questions, the Core Answer should look like t
 - If a table does not materially improve scanability, do not force one only to satisfy a format preference.
 - Table cells should stay short and factual. Use prose below the table to explain why the numbers or sources matter.
 - Prefer tables such as "关键数据快照 / Key Snapshot", "核心驱动与风险 / Drivers and Risks", or "外部证据摘要 / External Evidence Summary" over generic kitchen-sink tables.
+- Tables are especially preferred for:
+  - comparisons,
+  - timelines,
+  - evidence vs counter-evidence,
+  - validation status,
+  - mechanism steps,
+  - investor or fundraising rows,
+  - venue-share or flow facts.
 - Keep tables narrow: usually 3 columns, sometimes 2, rarely 4. Do not turn them into dashboards.
 - Omit rows whose values are unavailable. Do not print null, N/A, or placeholders.
 - Keep prices, percentages, and large values consistently formatted.
@@ -655,6 +704,9 @@ ${renderRecentNews(context, isZh)}
 
 ### Open Research
 ${renderOpenResearch(context, isZh)}
+
+## Research Fact Rows
+${renderResearchFacts(context, isZh)}
 
 ## Analysis Verdict
 - **Verdict:** ${context.decision.verdict}
@@ -781,10 +833,17 @@ Your report must:
   ## 关键回答
 - If the user asked multiple explicit questions, split "## 关键回答" into multiple "###" sub-sections.
 - Do not answer multiple explicit questions using only inline bold prompts such as "**问题？**". Use real "###" sub-headings instead.
-- Inside each Core Answer sub-section, prefer one paragraph for the direct answer and one paragraph for the evidence-based explanation.
+- Inside each Core Answer sub-section, prefer one paragraph for the direct answer and one paragraph for the evidence-based explanation when the answer is simple.
+- Inside each Core Answer sub-section, prefer "1. 2. 3." numbered short blocks:
+  1. direct answer,
+  2. evidence and mechanism,
+  3. limits, risks, or what still needs validation.
+- If the evidence is thinner, "1. 2." is acceptable, but do not collapse back into one oversized paragraph.
+- Keep the numbered items as normal Markdown list items, not numbered headings.
 - Be driven by the primary modules above instead of a fixed template.
 - Lead with the conclusion, then support it with the most relevant evidence.
 - Use the structured data coverage hints above as an explicit reminder of what concrete evidence is available.
+- Use the research fact rows above as direct evidence inputs. Expand the strongest rows into prose when they matter.
 - Keep the explanation readable for non-specialists without becoming shallow or overly compressed.
 - In explain or assess mode, use the number of tables that best fits the evidence. Do not force a fixed count.
 - If there are enough usable metrics, add a compact "关键数据快照" / "Key Snapshot" table near the top.
@@ -805,12 +864,18 @@ Your report must:
 - When open research provides useful evidence, show how it changed, confirmed, or limited the conclusion.
 - If raw fundamentals or tokenomics detail tables are supplied, consume them explicitly in the report instead of leaving them as unused appendix material.
 - If recent burn, buyback, fundraising, vesting, or investor rows are supplied, cite the most relevant rows directly.
+- If research fact rows include dated official events, named investors, exact fundraising rounds, venue-share facts, or on-chain flow facts, expand them into full analytical sentences instead of collapsing them into summary labels.
 - If named facts such as financing rounds, investor names, burn events, buyback events, venue shares, ecosystem hooks, or team roles are relevant, expand them in prose instead of compressing them into labels like "机构背书" or "生态支撑".
 - Do not give every module equal space. Let the strongest evidence take the most room, and keep weaker modules brief.
 - In the strongest sections, explicitly explain the meaning of the key metrics instead of only displaying them.
 - For a substantive report, the reader should be able to point to concrete numbers or named facts in the prose, not only in the tables.
 - Avoid wording like "机构背书强", "流动性较好", "存在买压", or "资金关注度较高" unless the sentence also shows the underlying supporting data.
 - If the prompt provides several usable facts for the same theme, write a fuller analytical paragraph instead of a one-sentence summary plus a table.
+- For relationship, value-capture, mechanism, or "有用但不涨" questions, build the answer around:
+  1. mechanism definition,
+  2. evidence that the mechanism is working,
+  3. evidence that the mechanism is blocked or leaking,
+  4. what would validate the mechanism more strongly.
 - Do not let formatting collapse into: heading -> table -> heading -> table. Add brief connective prose so the reader can follow the argument.
 - Include what matters now, what to watch next, and what would invalidate the thesis.
 - For each major conclusion, show the reasoning path instead of jumping from data to answer in one sentence.
@@ -836,6 +901,7 @@ Your report must:
 - Allow the report to use 2, 3, or more compact tables when that improves clarity.
 - Do not collapse market, fundamentals, sentiment, technical, and risk into one short section if they each contain meaningful evidence.
 - Do not stop after a brief answer paragraph if the prompt contains enough data to build a fuller report.
+- Do not let one long paragraph carry several different evidence clusters if those clusters can be split into smaller tables or "###" blocks more clearly.
 `.trim();
 
   return {
@@ -1016,20 +1082,50 @@ function buildTableBlueprint(
   if (profile === 'relationship_dependency') {
     return isZh
       ? [
-          '- 这类问题通常适合 3-4 张小表；如果关系定义和证据/反证已经足够清楚，不必凑满。',
+          '- 这类问题通常适合 4-5 张小表；优先把机制、支持证据、反证、边界条件拆开，不要堆成一大段解释。',
           '- 表 1：`关系定义`。说明这是生态关系、业务关系、流动性关系、叙事关系还是价值捕获关系。',
           '- 表 2：`传导机制`。列出这层关系如何传导到价格、需求、用户、流动性或估值想象。',
           '- 表 3：`证据与反证`。同时列出支持关系成立的证据，以及削弱这层关系的反证。',
-          '- 如果关系判断本身存在多层次，可以再加表 4：`关键判断验证状态`。',
+          '- 表 4：`关键判断验证状态`。列出已验证、方向性证据、缺失验证。',
+          '- 如内容仍较多，再加表 5：`边界条件`，说明什么条件下关系会增强、减弱或失效。',
           '- 正文必须明确解释：关系到底强不强、为什么不是简单同步上涨关系、什么条件下这层关系会减弱或失效。',
+          '- 推荐把正文拆成 `### 关系本质`、`### 传导路径`、`### 支持证据`、`### 反证与边界`，不要把四件事混在一段里。',
         ].join('\n')
       : [
-          '- This type of question often works well with 3-4 compact tables; if relationship definition plus evidence / counter-evidence already make the answer clear, do not force more.',
+          '- This type of question often works well with 4-5 compact tables. Prefer separating mechanism, supporting evidence, counter-evidence, and boundary conditions instead of collapsing them into one long explanation block.',
           '- Table 1: `Relationship Definition`, clarifying whether the linkage is ecosystem, business, liquidity, narrative, or value-capture based.',
           '- Table 2: `Transmission Mechanism`, explaining how the linkage could transmit into price, demand, users, liquidity, or valuation.',
           '- Table 3: `Evidence and Counter-Evidence`, showing what supports the relationship and what weakens it.',
-          '- Add Table 4: `Validation Status` only when the relationship has multiple layers that need verification labels.',
+          '- Table 4: `Validation Status`, listing what is verified, directional, and still missing verification.',
+          '- If the section is still crowded, add Table 5: `Boundary Conditions`, explaining what would strengthen, weaken, or break the linkage.',
           '- The prose must explain how strong the linkage really is, why it is not just simple price co-movement, and under what conditions the linkage would weaken or break.',
+          '- A good structure is `### Relationship Essence`, `### Transmission Path`, `### Supporting Evidence`, and `### Counter-Evidence and Boundaries`.',
+        ].join('\n');
+  }
+
+  if (profile === 'value_capture_mechanism') {
+    return isZh
+      ? [
+          '- 这类问题通常适合 4-5 张小表，重点不是复述结论，而是拆清楚机制是否真的把价值传到了代币本身。',
+          '- 表 1：`机制定义`。写清楚代币价值理论上来自哪里，例如手续费折扣、Gas、治理、回购、销毁、质押、收入分配、生态准入等。',
+          '- 表 2：`机制正在生效的证据`。优先放融资轮次、投资方、回购/销毁事件、链上净流向、交易场所份额、官方时间线等硬事实。',
+          '- 表 3：`机制失灵或泄漏点`。拆成“卡点 / 证据 / 对价格的含义”，直接解释为什么会出现“有用但不涨”。',
+          '- 表 4：`验证状态与缺口`。列出哪些环节已验证，哪些仍缺收入、TVL、用户、协议集成或链上数据验证。',
+          '- 如问题同时涉及关系强弱，可再加表 5：`传导边界`，说明什么条件下机制会增强、减弱或失效。',
+          '- 正文必须明确区分四件事：理论机制、已验证证据、反证/泄漏点、还缺什么验证。',
+          '- 推荐把正文拆成 `### 机制定义`、`### 生效证据`、`### 失灵点`、`### 还缺什么验证`，避免一整段把所有说明写完。',
+          '- 不要只写“价值捕获弱”或“机制不完整”，要明确指出是哪一个机制环节缺失，以及对应的证据行。',
+        ].join('\n')
+      : [
+          '- This type of question often works best with 4-5 compact tables. The goal is not to restate the conclusion, but to show whether the mechanism truly transmits value into the token.',
+          '- Table 1: `Mechanism Definition`, clarifying where token value is theoretically supposed to come from: fee discounts, gas demand, governance, burns, buybacks, staking, revenue sharing, or ecosystem access.',
+          '- Table 2: `Evidence That The Mechanism Is Working`, prioritizing fundraising rounds, investor names, burn or buyback events, exchange netflow, venue-share facts, and official timeline events.',
+          '- Table 3: `Leakage Or Failure Points`, with columns such as blockage / evidence / price implication, directly explaining why something can be useful but still not go up.',
+          '- Table 4: `Validation Status And Gaps`, stating what is verified and what still lacks revenue, TVL, user, integration, or on-chain proof.',
+          '- If the question also asks about relationship strength, add Table 5: `Transmission Boundary`, explaining what would strengthen, weaken, or break the mechanism.',
+          '- The prose must clearly separate theoretical mechanism, verified evidence, counter-evidence or leakage points, and missing verification.',
+          '- A good structure is `### Mechanism Definition`, `### Evidence It Works`, `### Failure Or Leakage Points`, and `### What Still Needs Validation`.',
+          '- Do not stop at saying the mechanism is weak or incomplete. Name the missing link and tie it to concrete evidence rows.',
         ].join('\n');
   }
 
@@ -1096,7 +1192,7 @@ function buildTableBlueprint(
 
 function detectTableProfile(
   context: ReportPromptContext,
-): 'fundamentals_vs_sentiment' | 'drivers_risks_investability' | 'relationship_dependency' | 'recent_and_l2_progress' | 'generic' {
+): 'fundamentals_vs_sentiment' | 'drivers_risks_investability' | 'relationship_dependency' | 'value_capture_mechanism' | 'recent_and_l2_progress' | 'generic' {
   const query = context.query.toLowerCase();
   const primaryIntent = context.planning.primaryIntent.toLowerCase();
   const focusAreas = new Set(context.focusAreas);
@@ -1111,6 +1207,15 @@ function detectTableProfile(
       /sentiment|speculation|emotion/.test(query))
   ) {
     return 'fundamentals_vs_sentiment';
+  }
+
+  if (
+    /价值捕获|机制|有用但不涨|why.*not up|why useful but not up|mechanism|capture|capture mechanism/.test(
+      query,
+    ) ||
+    /value capture|mechanism|monetization|capture/.test(primaryIntent)
+  ) {
+    return 'value_capture_mechanism';
   }
 
   if (
@@ -1191,6 +1296,49 @@ function renderOpenResearch(
     ),
   );
   return parts.join('\n');
+}
+
+function renderResearchFacts(
+  context: ReportPromptContext,
+  isZh: boolean,
+): string {
+  const rows = context.researchFacts.rows;
+  const parts: string[] = [];
+
+  if (context.researchFacts.expansionTargets.length > 0) {
+    parts.push(
+      `- ${isZh ? '优先展开的事实类型' : 'Preferred fact types to expand'}: ${context.researchFacts.expansionTargets.join(' | ')}`,
+    );
+  }
+
+  if (rows.length === 0) {
+    parts.push(
+      isZh
+        ? '• 当前没有额外整理出的研究事实行。'
+        : '• No extra research fact rows are available.',
+    );
+    return parts.join('\n');
+  }
+
+  parts.push(
+    [
+      `| ${isZh ? '主题' : 'Theme'} | ${isZh ? '日期' : 'Date'} | ${isZh ? '来源' : 'Source'} | ${isZh ? '对象' : 'Subject'} | ${isZh ? '动作' : 'Action'} | ${isZh ? '结果' : 'Result'} | ${isZh ? '验证' : 'Verification'} |`,
+      '|---|---|---|---|---|---|---|',
+      ...rows.slice(0, 18).map((row) => {
+        const verification =
+          row.verification === 'verified'
+            ? isZh
+              ? '已验证'
+              : 'verified'
+            : isZh
+              ? '方向性'
+              : 'directional';
+        return `| ${row.theme} | ${row.date ?? '-'} | ${row.source} | ${row.subject} | ${row.action} | ${truncate(row.result, 72)} | ${verification} |`;
+      }),
+    ].join('\n'),
+  );
+
+  return parts.join('\n\n');
 }
 
 function renderLiquidityVenues(
