@@ -290,8 +290,42 @@ describe('buildReportPrompts', () => {
     expect(prompts.systemPrompt).toContain('## Paragraph Design');
     expect(prompts.systemPrompt).toContain('Prefer fewer, fuller paragraphs over many 1-2 sentence fragments');
     expect(prompts.systemPrompt).toContain('## Data Explanation');
+    expect(prompts.systemPrompt).toContain('## Evidence-to-Prose Rules');
+    expect(prompts.systemPrompt).toContain('## Anti-Abstraction Examples');
+    expect(prompts.systemPrompt).toContain('## Final Pass');
+    expect(prompts.systemPrompt).toContain('## Markdown Validity');
+    expect(prompts.systemPrompt).toContain('## Markdown Example');
+    expect(prompts.systemPrompt).toContain('"executiveSummary" must be a single plain string paragraph');
     expect(prompts.systemPrompt).toContain('## Readability Layout');
+    expect(prompts.systemPrompt).toContain('The opening Markdown skeleton is mandatory');
+    expect(prompts.systemPrompt).toContain('Do not start the body directly with "##" or "###"');
+    expect(prompts.systemPrompt).toContain(
+      'Never start a table with a separator row like "|---|---|"',
+    );
+    expect(prompts.systemPrompt).toContain(
+      'must be split into multiple "###" sub-sections, usually one sub-section per explicit question',
+    );
+    expect(prompts.systemPrompt).toContain(
+      'do not use inline bold question sentences as substitutes for sub-headings',
+    );
     expect(prompts.userPrompt).toContain('Keep the Markdown visually breathable');
     expect(prompts.userPrompt).toContain('prefer concrete numbers and named facts over generic summaries');
+    expect(prompts.userPrompt).toContain(
+      'the first explanatory paragraph should usually reference 2 or more concrete rows',
+    );
+    expect(prompts.userPrompt).toContain(
+      'expand them in prose instead of compressing them into labels like "机构背书" or "生态支撑"',
+    );
+    expect(prompts.userPrompt).toContain('Keep the Markdown structurally valid and stable across runs');
+    expect(prompts.userPrompt).toContain('> **结论速览**');
+    expect(prompts.userPrompt).toContain(
+      'Do not answer multiple explicit questions using only inline bold prompts such as "**问题？**"',
+    );
+    expect(prompts.userPrompt).toContain(
+      'Inside each Core Answer sub-section, prefer one paragraph for the direct answer and one paragraph for the evidence-based explanation',
+    );
+    expect(prompts.userPrompt).toContain(
+      'If a relationship-style report is generated, it still must start with the required title + verdict + core-answer shell',
+    );
   });
 });

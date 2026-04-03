@@ -3,90 +3,90 @@
     "idx": 1,
     "slug": "sol-fundamentals-vs-sentiment",
     "message": "SOL的上涨更偏基本面还是情绪？",
-    "requestId": "f5231f2c-fd80-4406-8988-02d530a34a6b",
+    "requestId": "2edbe2f5-0004-4deb-8ee3-aca903139b76",
     "status": "ready",
     "file": "01-sol-fundamentals-vs-sentiment.md",
-    "chars": 5952
+    "chars": 6530
   },
   {
     "idx": 2,
     "slug": "btc-drivers-risks-investability",
     "message": "BTC上涨的核心驱动因素是什么？BTC最大的风险是什么？现在适合投资BTC吗？为什么？",
-    "requestId": "1949280a-e3bb-46d2-8b8d-e013e1af9994",
+    "requestId": "7b2e6ead-22c6-4055-938c-1b6a90af6df6",
     "status": "ready",
     "file": "02-btc-drivers-risks-investability.md",
-    "chars": 7231
+    "chars": 7114
   },
   {
     "idx": 3,
     "slug": "eth-recent-and-l2",
     "message": "ETH以太坊最近有什么新动向，L2进展咋样？",
-    "requestId": "0b0a8c3a-6f1e-44be-885e-8675893b8aca",
+    "requestId": "e15df034-f3be-4f06-90fd-d00eaeb8cc95",
     "status": "ready",
     "file": "03-eth-recent-and-l2.md",
-    "chars": 6771
+    "chars": 6858
   },
   {
     "idx": 4,
     "slug": "link-value-capture",
     "message": "LINK的价值捕获机制是什么？为什么很多人觉得它‘有用但不涨’？",
-    "requestId": "23ab5dcd-0726-4d32-9705-437f7a22ab1e",
+    "requestId": "e2c959e9-8312-44b7-9cc6-739ec21a65ff",
     "status": "ready",
     "file": "04-link-value-capture.md",
-    "chars": 6585
+    "chars": 6753
   },
   {
     "idx": 5,
     "slug": "bnb-exchange-relationship",
     "message": "BNB价格和交易所业务之间的关系有多强？",
-    "requestId": "ca2d4897-9caf-4a73-90b6-9ca3a21895cd",
+    "requestId": "b958e3f2-3255-4655-b3eb-5fac58f52988",
     "status": "ready",
     "file": "05-bnb-exchange-relationship.md",
-    "chars": 7811
+    "chars": 6880
   },
   {
     "idx": 6,
     "slug": "doge-why-survives",
     "message": "DOGE为什么能长期存在？它上涨更多依赖谁或什么？",
-    "requestId": "611f0324-9d36-46c5-8550-9a61bc8094c6",
+    "requestId": "053299ef-4173-4322-a6a4-b6d1f366c642",
     "status": "ready",
     "file": "06-doge-why-survives.md",
-    "chars": 6450
+    "chars": 6476
   },
   {
     "idx": 7,
     "slug": "pepe-core-driver",
     "message": "PEPE上涨的本质驱动是什么？这种币有长期逻辑吗？",
-    "requestId": "e8c896c6-6fd8-49dd-9dd6-102a211e63e0",
+    "requestId": "be077064-1f29-43fc-aed8-326fc25d29fd",
     "status": "ready",
     "file": "07-pepe-core-driver.md",
-    "chars": 3294
+    "chars": 6302
   },
   {
     "idx": 8,
     "slug": "bonk-sol-relationship",
     "message": "BONK和SOL生态之间是什么关系？",
-    "requestId": "bf1a436f-0f74-4d0b-9fa6-e55e9bbb547c",
+    "requestId": "ab4275a0-eb80-4c4b-b706-a3b6e066f12e",
     "status": "ready",
     "file": "08-bonk-sol-relationship.md",
-    "chars": 3897
+    "chars": 3928
   },
   {
     "idx": 9,
     "slug": "wld-ai-vs-identity",
     "message": "WLD的核心叙事是AI还是身份？它最大的争议点是什么？",
-    "requestId": "fdf92e6c-609e-49cb-baf2-3cfeba5b049b",
+    "requestId": "017f2e94-4967-4fc5-88de-062e5bebab19",
     "status": "ready",
     "file": "09-wld-ai-vs-identity.md",
-    "chars": 5693
+    "chars": 5759
   },
   {
     "idx": 10,
     "slug": "ondo-rwa-value",
     "message": "ONDO的价值来源于哪里？RWA赛道为什么最近被看好？",
-    "requestId": "0241491b-9c3f-4aec-9062-6f40b8f14a94",
+    "requestId": "7724206a-07b5-42b5-8b1e-8f9d3022addc",
     "status": "ready",
     "file": "10-ondo-rwa-value.md",
-    "chars": 6103
+    "chars": 6845
   }
 ]
