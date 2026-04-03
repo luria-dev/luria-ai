@@ -700,6 +700,7 @@ function buildIntentRouting(
     risk_check: ['risk', 'onchain', 'market', 'technical'],
     tokenomics_focus: ['tokenomics', 'fundamentals', 'market', 'risk'],
     news_focus: ['recent', 'market', 'sentiment', 'risk'],
+    relationship_analysis: ['fundamentals', 'market', 'sentiment', 'risk'],
   };
 
   const focusModuleMap: Partial<
@@ -750,6 +751,8 @@ function buildIntentRouting(
           '先回答供给、通胀、回购、销毁和融资稀释是否在主导当前逻辑。',
         news_focus:
           '先回答最近到底发生了什么变化，以及这些变化有没有改变交易判断。',
+        relationship_analysis:
+          '先回答关系到底是什么、如何传导、哪些部分已经被验证、哪些仍只是叙事。',
       }
     : {
         market_overview:
@@ -762,6 +765,8 @@ function buildIntentRouting(
           'Answer whether supply, inflation, burns, buybacks, and dilution are driving the current setup.',
         news_focus:
           'Answer what changed recently and whether those changes alter the market stance.',
+        relationship_analysis:
+          'Answer what the relationship actually is, how it transmits, what is already verified, and what remains narrative.',
       };
 
   const chosen: ReportModuleKey[] = [];

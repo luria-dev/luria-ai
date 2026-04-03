@@ -116,6 +116,7 @@ export function buildIntentPrompts(context: IntentPromptContext): PromptBundle {
       'targets must be short asset mentions or symbols only, not explanations.',
       'If the user clearly wants a comparison between 2 or more assets, use taskType="comparison" and outputGoal="comparison".',
       'If the user mentions multiple assets but wants separate analysis, use taskType="multi_asset".',
+      'Questions about relationship, dependency, linkage, ecosystem tie, or business tie between assets are not ranking comparisons by default. Prefer multi_asset unless the user explicitly asks which one is stronger or better.',
       'If the request is missing a usable target or is too ambiguous to run safely, set needsClarification=true.',
       'selection_reply should only be used when the message is clearly a candidate selection reply.',
       'If time window is not explicit, you may use "unspecified" instead of guessing.',

@@ -1,26 +1,45 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   AnalyzeIdentity,
+  LiquidityVenueSnapshot,
   LiquiditySnapshot,
 } from '../../../data/contracts/analyze-contracts';
 import { TOKEN_REGISTRY } from '../market/native-tokens';
 
 type GeckoTerminalResponse = {
   data?: {
+    id?: string;
     attributes?: {
+      name?: string;
+      address?: string;
+      dex_name?: string;
       reserve_in_usd?: string;
       volume_usd?: {
         h24?: string;
       };
-      relationships?: {
-        quote_token?: {
-          data?: {
-            id?: string;
-          };
+    };
+    relationships?: {
+      quote_token?: {
+        data?: {
+          id?: string;
         };
       };
     };
   };
+};
+
+type GeckoTerminalPoolListResponse = {
+  data?: Array<{
+    id?: string;
+    attributes?: {
+      name?: string;
+      address?: string;
+      reserve_in_usd?: string;
+      volume_usd?: {
+        h24?: string;
+      };
+    };
+  }>;
 };
 
 type LiquiditySample = {
@@ -30,7 +49,12 @@ type LiquiditySample = {
 
 type CoinGeckoTickerResponse = {
   tickers?: Array<{
+    base?: string;
     target?: string;
+    market?: {
+      name?: string;
+      identifier?: string;
+    };
     bid_ask_spread_percentage?: unknown;
     converted_volume?: {
       usd?: unknown;
@@ -50,6 +74,9 @@ type NormalizedLiquidityData = {
   degradeReason?: string;
   isLpLocked: boolean | null;
   lpLockRatioPct: number | null;
+  topVenues: LiquidityVenueSnapshot[];
+  primaryVenue: LiquidityVenueSnapshot | null;
+  venueCount: number | null;
 };
 
 @Injectable()
@@ -145,6 +172,9 @@ export class LiquidityService {
       withdrawalRiskFlag,
       volume24hUsd,
       priceImpact1kPct,
+      topVenues: poolData.topVenues,
+      primaryVenue: poolData.primaryVenue,
+      venueCount: poolData.venueCount,
       isLpLocked,
       lpLockRatioPct,
       rugpullRiskSignal,
@@ -167,68 +197,56 @@ export class LiquidityService {
       return null;
     }
 
-    const poolAddress = await this.findTopPoolAddress(
-      network,
-      identity.tokenAddress,
-    );
-    if (!poolAddress) {
+    const poolCandidates = await this.findTopPools(network, identity.tokenAddress);
+    if (poolCandidates.length === 0) {
       return null;
     }
+    const detailedPools = (
+      await Promise.all(
+        poolCandidates
+          .slice(0, 3)
+          .map((pool) => this.fetchGeckoTerminalPoolDetail(network, pool, identity)),
+      )
+    ).filter((pool): pool is LiquidityVenueSnapshot => pool !== null);
+    const topVenues =
+      detailedPools.length > 0
+        ? detailedPools
+        : poolCandidates.slice(0, 3).map((pool) => ({
+            venueType: 'dex_pool' as const,
+            venueName: null,
+            pairLabel: pool.name?.trim() || `${identity.symbol}/unknown`,
+            quoteToken: null,
+            liquidityUsd: pool.liquidityUsd,
+            volume24hUsd: pool.volume24hUsd,
+            priceImpact1kPct: this.estimatePriceImpact1kPct(pool.liquidityUsd),
+            marketSharePct: pool.marketSharePct,
+            sourceId: pool.poolAddress,
+          }));
+    const primaryVenue = topVenues[0] ?? null;
+    const normalizedQuote = this.normalizeQuoteToken(primaryVenue?.quoteToken);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    try {
-      const url = `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${poolAddress}`;
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
-      });
-
-      if (!response.ok) {
-        this.logger.warn(
-          `GeckoTerminal pool query failed (${response.status}) for ${identity.symbol}`,
-        );
-        return null;
-      }
-
-      const payload = (await response.json()) as GeckoTerminalResponse;
-      const attrs = payload.data?.attributes;
-      if (!attrs) {
-        return null;
-      }
-
-      const liquidityUsd = this.parseGeckoNumber(attrs.reserve_in_usd);
-      const volume24hUsd = this.parseGeckoNumber(attrs.volume_usd?.h24);
-
-      const quoteTokenId = attrs.relationships?.quote_token?.data?.id;
-      const quoteSymbol = quoteTokenId?.split('_').pop() ?? null;
-      const quoteToken: LiquiditySnapshot['quoteToken'] =
-        quoteSymbol?.toUpperCase() === 'USDT'
-          ? 'USDT'
-          : quoteSymbol?.toUpperCase() === 'USDC'
-            ? 'USDC'
-            : 'OTHER';
-
-      return {
-        quoteToken,
-        hasUsdtOrUsdcPair: quoteToken === 'USDT' || quoteToken === 'USDC',
-        liquidityUsd,
-        volume24hUsd,
-        priceImpact1kPct: null,
-        rugpullRiskSignal: 'unknown',
-        warnings: [],
-        sourceUsed: 'geckoterminal',
-        isLpLocked: null,
-        lpLockRatioPct: null,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`GeckoTerminal request failed: ${message}`);
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
+    return {
+      quoteToken: normalizedQuote,
+      hasUsdtOrUsdcPair:
+        topVenues.some((venue) => this.normalizeQuoteToken(venue.quoteToken) !== 'OTHER') ||
+        normalizedQuote !== 'OTHER',
+      liquidityUsd: primaryVenue?.liquidityUsd ?? poolCandidates[0]?.liquidityUsd ?? null,
+      volume24hUsd:
+        primaryVenue?.volume24hUsd ??
+        poolCandidates[0]?.volume24hUsd ??
+        null,
+      priceImpact1kPct:
+        primaryVenue?.priceImpact1kPct ??
+        this.estimatePriceImpact1kPct(primaryVenue?.liquidityUsd ?? null),
+      rugpullRiskSignal: 'unknown',
+      warnings: [],
+      sourceUsed: 'geckoterminal',
+      isLpLocked: null,
+      lpLockRatioPct: null,
+      topVenues,
+      primaryVenue,
+      venueCount: poolCandidates.length,
+    };
   }
 
   private async fetchNativeAssetProxy(
@@ -261,7 +279,12 @@ export class LiquidityService {
         const volumeUsd = this.toNumber(ticker.converted_volume?.usd);
         const spreadPct = this.toNumber(ticker.bid_ask_spread_percentage);
         return {
+          base: (ticker.base ?? identity.symbol).trim().toUpperCase(),
           target,
+          market: {
+            name: ticker.market?.name?.trim() || undefined,
+            identifier: ticker.market?.identifier?.trim() || undefined,
+          },
           volumeUsd,
           spreadPct,
           stable:
@@ -300,6 +323,22 @@ export class LiquidityService {
         : preferred.some((ticker) => ticker.target === 'USDC')
           ? 'USDC'
           : 'OTHER';
+    const topVenues = selected.slice(0, 5).map((ticker) => ({
+      venueType: 'cex_market' as const,
+      venueName: ticker.market?.name?.trim() || null,
+      pairLabel: `${(ticker.base ?? identity.symbol).trim().toUpperCase()}/${ticker.target}`,
+      quoteToken: ticker.target || null,
+      liquidityUsd: ticker.volumeUsd,
+      volume24hUsd: ticker.volumeUsd,
+      priceImpact1kPct:
+        ticker.spreadPct !== null ? Number(ticker.spreadPct.toFixed(4)) : null,
+      marketSharePct:
+        volume24hUsd && ticker.volumeUsd
+          ? Number(((ticker.volumeUsd / volume24hUsd) * 100).toFixed(2))
+          : null,
+      sourceId: ticker.market?.identifier?.trim() || null,
+    }));
+    const primaryVenue = topVenues[0] ?? null;
 
     const warnings = [
       'Native-asset liquidity uses CoinGecko centralized-exchange ticker volume proxy instead of on-chain pool reserve.',
@@ -329,6 +368,9 @@ export class LiquidityService {
       sourceUsed: 'coingecko',
       isLpLocked: null,
       lpLockRatioPct: null,
+      topVenues,
+      primaryVenue,
+      venueCount: tickers.length,
       degradeReason:
         liquidityUsd === null
           ? 'LIQUIDITY_PROXY_VOLUME_MISSING'
@@ -338,10 +380,19 @@ export class LiquidityService {
     };
   }
 
-  private async findTopPoolAddress(
+  private async findTopPools(
     network: string,
     tokenAddress: string,
-  ): Promise<string | null> {
+  ): Promise<
+    Array<{
+      id: string;
+      poolAddress: string;
+      name: string | null;
+      liquidityUsd: number | null;
+      volume24hUsd: number | null;
+      marketSharePct: number | null;
+    }>
+  > {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
@@ -353,28 +404,104 @@ export class LiquidityService {
       });
 
       if (!response.ok) {
-        return null;
+        return [];
       }
 
-      const payload = (await response.json()) as {
-        data?: Array<{ id?: string; attributes?: { reserve_in_usd?: string } }>;
-      };
+      const payload = (await response.json()) as GeckoTerminalPoolListResponse;
 
       const pools = payload.data ?? [];
       if (pools.length === 0) {
+        return [];
+      }
+
+      const totalLiquidity = pools.reduce(
+        (sum, pool) =>
+          sum + (this.parseGeckoNumber(pool.attributes?.reserve_in_usd) ?? 0),
+        0,
+      );
+      return pools
+        .map((pool) => ({
+          id: pool.id ?? '',
+          poolAddress: pool.attributes?.address ?? pool.id?.split('_').pop() ?? '',
+          name: pool.attributes?.name?.trim() || null,
+          liquidityUsd: this.parseGeckoNumber(pool.attributes?.reserve_in_usd),
+          volume24hUsd: this.parseGeckoNumber(pool.attributes?.volume_usd?.h24),
+          marketSharePct:
+            totalLiquidity > 0
+              ? Number(
+                  (
+                    ((this.parseGeckoNumber(pool.attributes?.reserve_in_usd) ?? 0) /
+                      totalLiquidity) *
+                    100
+                  ).toFixed(2),
+                )
+              : null,
+        }))
+        .filter((pool) => pool.id && pool.poolAddress)
+        .sort((a, b) => (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async fetchGeckoTerminalPoolDetail(
+    network: string,
+    pool: {
+      poolAddress: string;
+      name: string | null;
+      liquidityUsd: number | null;
+      volume24hUsd: number | null;
+      marketSharePct: number | null;
+    },
+    identity: AnalyzeIdentity,
+  ): Promise<LiquidityVenueSnapshot | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const url = `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${pool.poolAddress}`;
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        this.logger.warn(
+          `GeckoTerminal pool query failed (${response.status}) for ${identity.symbol}`,
+        );
         return null;
       }
 
-      const sorted = pools
-        .map((pool) => ({
-          id: pool.id?.split('_').pop() ?? '',
-          liquidity: this.parseGeckoNumber(pool.attributes?.reserve_in_usd) ?? 0,
-        }))
-        .filter((p) => p.id)
-        .sort((a, b) => b.liquidity - a.liquidity);
+      const payload = (await response.json()) as GeckoTerminalResponse;
+      const attrs = payload.data?.attributes;
+      if (!attrs) {
+        return null;
+      }
 
-      return sorted[0]?.id ?? null;
-    } catch {
+      const quoteTokenId = payload.data?.relationships?.quote_token?.data?.id;
+      const quoteSymbol = quoteTokenId?.split('_').pop() ?? null;
+      const liquidityUsd =
+        this.parseGeckoNumber(attrs.reserve_in_usd) ?? pool.liquidityUsd;
+      return {
+        venueType: 'dex_pool',
+        venueName: attrs.dex_name?.trim() || null,
+        pairLabel:
+          attrs.name?.trim() ||
+          pool.name?.trim() ||
+          `${identity.symbol}/${quoteSymbol ?? 'unknown'}`,
+        quoteToken: quoteSymbol?.toUpperCase() ?? null,
+        liquidityUsd,
+        volume24hUsd:
+          this.parseGeckoNumber(attrs.volume_usd?.h24) ?? pool.volume24hUsd,
+        priceImpact1kPct: this.estimatePriceImpact1kPct(liquidityUsd),
+        marketSharePct: pool.marketSharePct,
+        sourceId: attrs.address?.trim() || pool.poolAddress,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`GeckoTerminal request failed: ${message}`);
       return null;
     } finally {
       clearTimeout(timeout);
@@ -400,6 +527,19 @@ export class LiquidityService {
     if (!value) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private normalizeQuoteToken(
+    value: string | null | undefined,
+  ): LiquiditySnapshot['quoteToken'] {
+    const normalized = value?.trim().toUpperCase();
+    if (normalized === 'USDT') {
+      return 'USDT';
+    }
+    if (normalized === 'USDC') {
+      return 'USDC';
+    }
+    return 'OTHER';
   }
 
   private pickOneHourAgoLiquidity(key: string, nowMs: number): number | null {
@@ -503,6 +643,9 @@ export class LiquidityService {
       withdrawalRiskFlag: false,
       volume24hUsd: null,
       priceImpact1kPct: null,
+      topVenues: [],
+      primaryVenue: null,
+      venueCount: 0,
       isLpLocked: null,
       lpLockRatioPct: null,
       rugpullRiskSignal: 'unknown',

@@ -385,6 +385,9 @@ export type LiquiditySnapshot = {
   withdrawalRiskFlag: boolean;
   volume24hUsd: number | null;
   priceImpact1kPct: number | null;
+  topVenues?: LiquidityVenueSnapshot[];
+  primaryVenue?: LiquidityVenueSnapshot | null;
+  venueCount?: number | null;
   isLpLocked: boolean | null;
   lpLockRatioPct: number | null;
   rugpullRiskSignal: 'low' | 'medium' | 'high' | 'critical' | 'unknown';
@@ -397,6 +400,18 @@ export type LiquiditySnapshot = {
     | 'liquidity_unavailable';
   degraded: boolean;
   degradeReason?: string;
+};
+
+export type LiquidityVenueSnapshot = {
+  venueType: 'dex_pool' | 'cex_market';
+  venueName: string | null;
+  pairLabel: string;
+  quoteToken: string | null;
+  liquidityUsd: number | null;
+  volume24hUsd: number | null;
+  priceImpact1kPct: number | null;
+  marketSharePct: number | null;
+  sourceId?: string | null;
 };
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';

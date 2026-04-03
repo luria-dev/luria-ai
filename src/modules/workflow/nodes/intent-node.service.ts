@@ -572,6 +572,9 @@ export class IntentNodeService {
     outputGoal: IntentOutput['outputGoal'],
   ): IntentOutput['objective'] {
     const normalized = query.toLowerCase();
+    if (this.isRelationshipQuery(normalized)) {
+      return 'relationship_analysis';
+    }
     if (
       normalized.includes('风险') ||
       normalized.includes('安全') ||
@@ -647,7 +650,10 @@ export class IntentNodeService {
     if (
       normalized.includes('基本面') ||
       normalized.includes('fundamental') ||
-      normalized.includes('项目')
+      normalized.includes('项目') ||
+      normalized.includes('生态') ||
+      normalized.includes('business') ||
+      normalized.includes('业务')
     ) {
       focus.add('project_fundamentals');
     }
@@ -671,6 +677,12 @@ export class IntentNodeService {
       focus.add('onchain_flow');
       focus.add('security_risk');
       focus.add('liquidity_quality');
+    }
+
+    if (this.isRelationshipQuery(normalized)) {
+      focus.add('project_fundamentals');
+      focus.add('price_action');
+      focus.add('news_events');
     }
 
     if (taskType === 'comparison') {
@@ -699,6 +711,34 @@ export class IntentNodeService {
       constraints.push('clarification_required_before_confident_execution');
     }
     return constraints;
+  }
+
+  private isRelationshipQuery(normalizedQuery: string): boolean {
+    const relationshipKeywords = [
+      '关系',
+      '关联',
+      '联动',
+      '绑定',
+      '依赖',
+      '受益于',
+      '传导',
+      '生态之间',
+      '业务之间',
+      '价值捕获',
+      'capture value',
+      'value capture',
+      'relationship',
+      'linked to',
+      'correlation to',
+      'depends on',
+      'dependency',
+      'ecosystem relation',
+      'business linkage',
+    ];
+
+    return relationshipKeywords.some((keyword) =>
+      normalizedQuery.includes(keyword),
+    );
   }
 
 }

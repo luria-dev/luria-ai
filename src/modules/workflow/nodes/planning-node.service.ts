@@ -107,7 +107,11 @@ export class PlanningNodeService {
       primaryIntent,
       subTasks,
       responseMode,
-      requirements: this.buildFallbackRequirements(taskDisposition, responseMode),
+      requirements: this.buildFallbackRequirements(
+        intent,
+        taskDisposition,
+        responseMode,
+      ),
       analysisQuestions: this.buildFallbackAnalysisQuestions(
         subTasks,
         responseMode,
@@ -142,6 +146,15 @@ export class PlanningNodeService {
       normalizedQuery.includes('二层')
     ) {
       topics.push(`layer 2 progress around ${symbol}`);
+    }
+
+    if (intent.objective === 'relationship_analysis') {
+      topics.push(`relationship structure around ${symbol}`);
+      if (intent.entities.length >= 2) {
+        topics.push(
+          `relationship between ${intent.entities.slice(0, 2).join(' and ')}`,
+        );
+      }
     }
 
     return {
@@ -273,6 +286,10 @@ export class PlanningNodeService {
       return 'assess';
     }
 
+    if (intent.objective === 'relationship_analysis') {
+      return 'explain';
+    }
+
     return 'explain';
   }
 
@@ -281,6 +298,9 @@ export class PlanningNodeService {
     responseMode: PlanResponseMode,
   ): string {
     const symbol = intent.entities[0] ?? 'the target asset';
+    if (intent.objective === 'relationship_analysis') {
+      return `The user wants to understand how ${symbol} is linked to its surrounding asset, ecosystem, business, or narrative context.`;
+    }
     return responseMode === 'act'
       ? `The user wants an execution-oriented answer about ${symbol}.`
       : responseMode === 'assess'
@@ -354,8 +374,19 @@ export class PlanningNodeService {
       tasks.push(`whether the move in ${symbol} is more fundamentals-driven or sentiment-driven`);
     }
 
+    if (intent.objective === 'relationship_analysis') {
+      tasks.push(`what relationship structure matters most around ${symbol}`);
+      tasks.push(`how value, users, liquidity, or narrative flows into or away from ${symbol}`);
+      tasks.push(`what evidence confirms or weakens that relationship`);
+    }
+
     const defaults =
-      responseMode === 'explain'
+      intent.objective === 'relationship_analysis'
+        ? [
+            `what the relationship around ${symbol} actually is`,
+            `how strong that relationship is in practice rather than only in narrative`,
+          ]
+        : responseMode === 'explain'
         ? [
             `what changed recently around ${symbol}`,
             `what is still uncertain or easy to overread`,
@@ -398,6 +429,18 @@ export class PlanningNodeService {
     if (symbol === 'btc') {
       sources.push('bitcoin.org', 'bitcoinmagazine.com');
     }
+    if (symbol === 'bnb' || normalizedQuery.includes('exchange')) {
+      sources.push('binance.com', 'research.binance.com');
+    }
+    if (symbol === 'link') {
+      sources.push('chain.link', 'blog.chain.link', 'docs.chain.link');
+    }
+    if (symbol === 'ondo' || normalizedQuery.includes('rwa')) {
+      sources.push('ondo.finance', 'ondo.foundation');
+    }
+    if (symbol === 'wld' || normalizedQuery.includes('worldcoin')) {
+      sources.push('world.org', 'worldcoin.org');
+    }
     if (symbol === 'sol') {
       sources.push('solana.com', 'solana.org', 'solana.foundation');
     }
@@ -413,6 +456,7 @@ export class PlanningNodeService {
   }
 
   private buildFallbackRequirements(
+    intent: IntentOutput,
     taskDisposition: PlanTaskDisposition,
     responseMode: PlanResponseMode,
   ): PlanRequirement[] {
@@ -490,6 +534,39 @@ export class PlanningNodeService {
           priority: 'medium',
           sourceHint: ['goplus'],
           reason: 'Security issues can invalidate the thesis.',
+        },
+      ];
+    }
+
+    if (intent.objective === 'relationship_analysis') {
+      return [
+        {
+          dataType: 'price',
+          required: true,
+          priority: 'medium',
+          sourceHint: ['coingecko'],
+          reason: 'Price helps show whether the relationship has translated into market behavior.',
+        },
+        {
+          dataType: 'news',
+          required: true,
+          priority: 'high',
+          sourceHint: ['coindesk'],
+          reason: 'Relationship questions need current public evidence rather than only static profiles.',
+        },
+        {
+          dataType: 'fundamentals',
+          required: true,
+          priority: 'high',
+          sourceHint: ['rootdata'],
+          reason: 'Relationship analysis needs ecosystem, business, and project-context evidence.',
+        },
+        {
+          dataType: 'sentiment',
+          required: true,
+          priority: 'medium',
+          sourceHint: ['santiment'],
+          reason: 'Sentiment helps distinguish structural linkage from narrative-only linkage.',
         },
       ];
     }

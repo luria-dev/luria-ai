@@ -34,6 +34,7 @@ export const intentObjectiveSchema = z.enum([
   'timing_decision',
   'news_focus',
   'tokenomics_focus',
+  'relationship_analysis',
 ]);
 export const intentInteractionTypeSchema = z.enum([
   'new_query',

@@ -62,14 +62,18 @@ describe('LiquidityService.fetchSnapshot', () => {
         ok: true,
         json: async () => ({
           data: {
+            id: 'eth_0xpool',
             attributes: {
+              name: 'PEPE / USDT',
+              address: '0xpool',
+              dex_name: 'Uniswap V2',
               reserve_in_usd: '800000',
               volume_usd: { h24: '12000000' },
-              relationships: {
-                quote_token: {
-                  data: {
-                    id: 'eth_usdt',
-                  },
+            },
+            relationships: {
+              quote_token: {
+                data: {
+                  id: 'eth_usdt',
                 },
               },
             },
@@ -106,6 +110,9 @@ describe('LiquidityService.fetchSnapshot', () => {
     expect(snapshot.degraded).toBe(false);
     expect(snapshot.sourceUsed).toBe('geckoterminal');
     expect(snapshot.quoteToken).toBe('USDT');
+    expect(snapshot.venueCount).toBe(1);
+    expect(snapshot.primaryVenue?.pairLabel).toBe('PEPE / USDT');
+    expect(snapshot.topVenues[0]?.venueName).toBe('Uniswap V2');
   });
 
   it('uses CoinGecko ticker proxy for native assets', async () => {
@@ -115,17 +122,23 @@ describe('LiquidityService.fetchSnapshot', () => {
         json: async () => ({
           tickers: [
             {
+              base: 'BTC',
               target: 'USDT',
+              market: { name: 'Binance', identifier: 'binance' },
               converted_volume: { usd: 2801365473 },
               bid_ask_spread_percentage: 0.010014,
             },
             {
+              base: 'BTC',
               target: 'USDT',
+              market: { name: 'Bybit', identifier: 'bybit_spot' },
               converted_volume: { usd: 2728780243 },
               bid_ask_spread_percentage: 0.010043,
             },
             {
+              base: 'BTC',
               target: 'USD',
+              market: { name: 'Coinbase Exchange', identifier: 'coinbase' },
               converted_volume: { usd: 2299536485 },
               bid_ask_spread_percentage: 0.010014,
             },
@@ -146,5 +159,8 @@ describe('LiquidityService.fetchSnapshot', () => {
     expect(snapshot.priceImpact1kPct).toBe(0.01);
     expect(snapshot.rugpullRiskSignal).toBe('low');
     expect(snapshot.warnings[0]).toContain('CoinGecko centralized-exchange ticker volume proxy');
+    expect(snapshot.topVenues[0]?.pairLabel).toBe('BTC/USDT');
+    expect(snapshot.topVenues[0]?.venueName).toBe('Binance');
+    expect(snapshot.venueCount).toBe(3);
   });
 });

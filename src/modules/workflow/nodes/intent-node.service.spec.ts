@@ -72,6 +72,21 @@ describe('IntentNodeService', () => {
     expect(result.entityMentions).toEqual(['Aster', 'Hyper']);
   });
 
+  it('should classify relationship queries as relationship analysis without forcing comparison mode', async () => {
+    const service = new IntentNodeService(runtimeStub as LlmRuntimeService);
+    const result = await service.parse({
+      query: 'BONK和SOL生态之间是什么关系？',
+      timeWindow: '30d',
+      preferredChain: null,
+    });
+
+    expect(result.objective).toBe('relationship_analysis');
+    expect(result.taskType).toBe('multi_asset');
+    expect(result.outputGoal).toBe('analysis');
+    expect(result.focusAreas).toContain('project_fundamentals');
+    expect(result.focusAreas).toContain('news_events');
+  });
+
   it('should reuse memo entities for follow-up query without explicit token', async () => {
     const service = new IntentNodeService(runtimeStub as LlmRuntimeService);
     const result = await service.parse({

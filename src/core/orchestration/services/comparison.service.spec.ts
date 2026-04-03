@@ -12,6 +12,7 @@ type BuildTargetParams = {
   yellowAlerts?: number;
   degradedNodeCount?: number;
   language?: 'zh' | 'en';
+  objective?: 'market_overview' | 'relationship_analysis';
 };
 
 function buildDegradedNodes(count: number): DataType[] {
@@ -39,10 +40,21 @@ function buildTarget(params: BuildTargetParams): TargetPipeline {
     pipeline: {
       intent: {
         language: params.language ?? 'en',
+        objective: params.objective ?? 'market_overview',
+        userQuery:
+          params.objective === 'relationship_analysis'
+            ? `${params.symbol} relationship analysis`
+            : `${params.symbol} analysis`,
       },
       analysis: {
         verdict: params.verdict,
         confidence: params.confidence,
+        reason: `${params.symbol} reason`,
+        summary: `${params.symbol} summary`,
+        evidence: [`${params.symbol} evidence`],
+        keyObservations: [`${params.symbol} observation`],
+        riskHighlights: [],
+        dataQualityNotes: [],
       },
       strategy: {
         verdict: params.verdict,
@@ -54,7 +66,25 @@ function buildTarget(params: BuildTargetParams): TargetPipeline {
       },
       execution: {
         degradedNodes: buildDegradedNodes(params.degradedNodeCount ?? 0),
+        missingEvidence: [],
         data: {
+          market: {
+            price: {
+              priceUsd: 100,
+              change24hPct: 1,
+              change7dPct: 2,
+              totalVolume24hUsd: 1000000,
+            },
+          },
+          fundamentals: {
+            profile: {
+              oneLiner: `${params.symbol} profile`,
+              tags: ['test'],
+            },
+          },
+          openResearch: {
+            items: [],
+          },
           security: {
             isHoneypot: false,
             riskLevel: 'low',
@@ -169,5 +199,40 @@ describe('ComparisonService', () => {
     expect(summary.ranked[0]?.symbol).toBe('AAA');
     expect(summary.ranked[0]?.verdict).toBe('BUY');
     expect(summary.ranked[0]?.reasons[0]).toContain('analysis=BUY');
+  });
+
+  it('should treat relationship-analysis bundles as non-winner reports', () => {
+    const targets = [
+      buildTarget({
+        targetKey: 'BONK',
+        symbol: 'BONK',
+        verdict: 'HOLD',
+        confidence: 0.55,
+        objective: 'relationship_analysis',
+      }),
+      buildTarget({
+        targetKey: 'SOL',
+        symbol: 'SOL',
+        verdict: 'HOLD',
+        confidence: 0.6,
+        objective: 'relationship_analysis',
+      }),
+    ];
+
+    expect(
+      service.shouldBuildComparison(targets[0].pipeline.intent as never, 2),
+    ).toBe(true);
+
+    const summary = service.buildComparisonSummary(
+      'BONK和SOL生态之间是什么关系？',
+      targets,
+    );
+    expect(summary.winner).toBeNull();
+    expect(summary.summary).toContain('relationship analysis');
+
+    const report = service.buildComparisonReport(targets, summary);
+    expect(report.title).toContain('Relationship Analysis');
+    expect(report.body).toContain('Relationship Definition');
+    expect(report.body).not.toContain('Allocation Guidance');
   });
 });

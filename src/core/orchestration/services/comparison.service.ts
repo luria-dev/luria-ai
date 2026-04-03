@@ -35,7 +35,11 @@ export class ComparisonService {
   constructor(private readonly llmRuntime: LlmRuntimeService) {}
 
   shouldBuildComparison(intent: IntentOutput, targetCount: number): boolean {
-    return intent.taskType === 'comparison' && targetCount >= 2;
+    return (
+      targetCount >= 2 &&
+      (intent.taskType === 'comparison' ||
+        intent.objective === 'relationship_analysis')
+    );
   }
 
   buildComparisonSummary(
@@ -74,6 +78,22 @@ export class ComparisonService {
         };
       })
       .sort((a, b) => b.score - a.score);
+
+    if (this.isRelationshipAnalysis(targets)) {
+      const language = targets[0]?.pipeline.intent.language ?? 'en';
+      const isZh = language === 'zh' || language === 'cn';
+      return {
+        winner: null,
+        ranked,
+        summary: isZh
+          ? `当前任务是关系分析：重点不是在 ${targets
+              .map((target) => target.identity.symbol)
+              .join('、')} 中选出胜者，而是解释它们之间的真实关系、传导机制与边界条件。`
+          : `This task is relationship analysis: the goal is not to pick a winner across ${targets
+              .map((target) => target.identity.symbol)
+              .join(', ')}, but to explain the real linkage, transmission path, and boundary conditions between them.`,
+      };
+    }
 
     const winner = this.selectWinner(ranked);
     const language = targets[0]?.pipeline.intent.language ?? 'en';
@@ -118,6 +138,10 @@ export class ComparisonService {
     targets: TargetPipeline[],
     intent: IntentOutput,
   ): ReportOutput {
+    if (intent.objective === 'relationship_analysis') {
+      return this.buildRelationshipComparisonReport(targets);
+    }
+
     const isZh = intent.language === 'zh';
     const scoringConfig = resolveComparisonScoringConfigFromEnv();
     const ranked = targets
@@ -292,6 +316,10 @@ export class ComparisonService {
     targets: TargetPipeline[],
     comparison: ComparisonSummary,
   ): ReportOutput {
+    if (this.isRelationshipAnalysis(targets)) {
+      return this.buildRelationshipComparisonReport(targets);
+    }
+
     const language = targets[0]?.pipeline.intent.language ?? 'en';
     const isZh = language === 'zh';
     const query = targets[0]?.pipeline.intent.userQuery ?? '';
@@ -548,6 +576,10 @@ export class ComparisonService {
     targets: TargetPipeline[],
     comparison: ComparisonSummary,
   ): { systemPrompt: string; userPrompt: string } {
+    if (this.isRelationshipAnalysis(targets)) {
+      return this.buildRelationshipReportPrompts(targets);
+    }
+
     const language = targets[0]?.pipeline.intent.language ?? 'en';
     const isZh = language === 'zh';
     const query = targets[0]?.pipeline.intent.userQuery ?? '';
@@ -624,6 +656,295 @@ Return "body" as one Markdown string.
 `.trim();
 
     return { systemPrompt, userPrompt };
+  }
+
+  private isRelationshipAnalysis(targets: TargetPipeline[]): boolean {
+    return targets[0]?.pipeline.intent.objective === 'relationship_analysis';
+  }
+
+  private buildRelationshipComparisonReport(
+    targets: TargetPipeline[],
+  ): ReportOutput {
+    const language = targets[0]?.pipeline.intent.language ?? 'en';
+    const isZh = language === 'zh' || language === 'cn';
+    const query = targets[0]?.pipeline.intent.userQuery ?? '';
+    const symbols = targets.map((target) => target.identity.symbol);
+    const title = isZh
+      ? `${symbols.join(' / ')} 关系分析`
+      : `${symbols.join(' / ')} Relationship Analysis`;
+    const executiveSummary = isZh
+      ? `本题的重点不是在 ${symbols.join('、')} 中选出更强的一方，而是解释它们之间的关系到底属于生态依附、业务传导、叙事联动，还是仅仅停留在市场想象。当前更合理的做法是先拆清关系类型、传导机制和验证状态，再判断这层关系有多强。`
+      : `The point of this task is not to pick the stronger side across ${symbols.join(', ')}, but to explain whether the linkage is ecosystem-based, business-driven, narrative-led, or still mostly market imagination. The disciplined approach is to separate relationship type, transmission mechanism, and validation status before judging how strong the linkage really is.`;
+
+    const definitionPoints = this.buildRelationshipDefinitionPoints(
+      targets,
+      query,
+      isZh,
+    );
+    const transmissionPoints = this.buildRelationshipTransmissionPoints(
+      targets,
+      isZh,
+    );
+    const evidencePoints = this.buildRelationshipEvidencePoints(targets, isZh);
+    const validationPoints = this.buildRelationshipValidationPoints(
+      targets,
+      isZh,
+    );
+
+    const body = [
+      `# ${title}`,
+      '',
+      executiveSummary,
+      '',
+      `## ${isZh ? '关系定义' : 'Relationship Definition'}`,
+      ...definitionPoints.map((point) => `- ${point}`),
+      '',
+      `## ${isZh ? '传导机制' : 'Transmission Mechanism'}`,
+      ...transmissionPoints.map((point) => `- ${point}`),
+      '',
+      `## ${isZh ? '证据与反证' : 'Evidence And Counter-Evidence'}`,
+      ...evidencePoints.map((point) => `- ${point}`),
+      '',
+      `## ${isZh ? '验证状态与边界条件' : 'Validation Status And Boundary Conditions'}`,
+      ...validationPoints.map((point) => `- ${point}`),
+      '',
+      isZh
+        ? '本报告仅供研究参考，不构成投资建议。'
+        : 'This report is for research purposes only and is not investment advice.',
+    ]
+      .join('\n')
+      .trim();
+
+    const sections = [
+      {
+        heading: isZh ? '关系定义' : 'Relationship Definition',
+        points: definitionPoints,
+      },
+      {
+        heading: isZh ? '传导机制' : 'Transmission Mechanism',
+        points: transmissionPoints,
+      },
+      {
+        heading: isZh ? '证据与反证' : 'Evidence And Counter-Evidence',
+        points: evidencePoints,
+      },
+      {
+        heading: isZh
+          ? '验证状态与边界条件'
+          : 'Validation Status And Boundary Conditions',
+        points: validationPoints,
+      },
+    ];
+
+    return {
+      title,
+      executiveSummary,
+      body,
+      sections,
+      reportMeta: {
+        keyTakeaway: definitionPoints[0] ?? executiveSummary,
+        whyNow: [...definitionPoints.slice(1), ...transmissionPoints].slice(
+          0,
+          4,
+        ),
+        actionGuidance: [],
+        keyTriggers: [],
+        invalidationSignals: validationPoints,
+        dataQualityNotes: [],
+        scenarioMap: [],
+      },
+      verdict: 'HOLD',
+      confidence: this.deriveBundleConfidence(targets),
+      disclaimer: isZh
+        ? '本报告仅供研究参考，不构成投资建议。'
+        : 'This report is for research purposes only and is not investment advice.',
+    };
+  }
+
+  private buildRelationshipReportPrompts(
+    targets: TargetPipeline[],
+  ): { systemPrompt: string; userPrompt: string } {
+    const language = targets[0]?.pipeline.intent.language ?? 'en';
+    const isZh = language === 'zh' || language === 'cn';
+    const query = targets[0]?.pipeline.intent.userQuery ?? '';
+    const fallback = this.buildRelationshipComparisonReport(targets);
+
+    const targetLines = targets.map((target) => {
+      const analysis = target.pipeline.analysis;
+      const execution = target.pipeline.execution;
+      const price = execution.data.market.price;
+      const profile = execution.data.fundamentals.profile;
+      return [
+        `- ${target.identity.symbol} (${target.identity.chain})`,
+        `  verdict=${analysis.verdict}, confidence=${analysis.confidence.toFixed(2)}`,
+        `  reason=${analysis.reason}`,
+        `  summary=${analysis.summary}`,
+        `  oneLiner=${profile.oneLiner ?? 'N/A'}`,
+        `  tags=${profile.tags.join(' | ') || 'N/A'}`,
+        `  keyObservations=${analysis.keyObservations.join(' | ') || 'N/A'}`,
+        `  evidence=${analysis.evidence.join(' | ') || 'N/A'}`,
+        `  degradedNodes=${execution.degradedNodes.join(', ') || 'None'}`,
+        `  missingEvidence=${execution.missingEvidence.join(', ') || 'None'}`,
+        `  market(price=${price.priceUsd ?? 'N/A'}, 24h=${price.change24hPct ?? 'N/A'}%, 7d=${price.change7dPct ?? 'N/A'}%, volume=${price.totalVolume24hUsd ?? 'N/A'})`,
+      ].join('\n');
+    });
+
+    const systemPrompt = `
+You are an expert crypto research editor writing a user-facing relationship analysis report.
+
+## Goal
+Explain the real relationship between the supplied assets, ecosystem, business, or narrative context.
+
+## Required Behavior
+- Use ${isZh ? 'Chinese (中文)' : 'English'}
+- Do not rank winners, pick allocations, or force a stronger side unless the evidence truly requires it
+- Focus on: relationship definition, transmission mechanism, confirming evidence, counter-evidence, validation status, and boundary conditions
+- Distinguish verified linkage from narrative-only linkage
+- Return only valid JSON with: title, executiveSummary, body, disclaimer
+- The field "body" must be one Markdown string
+`.trim();
+
+    const userPrompt = `
+## User Query
+${query}
+
+## Deterministic Fallback Report
+${fallback.body}
+
+## Per-Target Analysis
+${targetLines.join('\n\n')}
+
+## Writing Task
+Write one clear relationship-analysis report.
+The report should answer:
+- what the relationship actually is
+- how the linkage transmits in practice
+- what evidence supports it
+- what evidence weakens it
+- what is already verified versus still narrative
+- what conditions would weaken or break the linkage
+
+Do not turn this into a ranking, allocation, or winner-selection report.
+Return "body" as one Markdown string.
+`.trim();
+
+    return { systemPrompt, userPrompt };
+  }
+
+  private buildRelationshipDefinitionPoints(
+    targets: TargetPipeline[],
+    query: string,
+    isZh: boolean,
+  ): string[] {
+    const symbols = targets.map((target) => target.identity.symbol);
+    const relationType = this.inferRelationshipType(query, isZh);
+    const points: string[] = [
+      isZh
+        ? `${symbols.join(' 与 ')} 更应该被理解为「${relationType}」，而不是简单的谁强谁弱比较。`
+        : `${symbols.join(' and ')} are better understood through a "${relationType}" lens than through a simple stronger-versus-weaker comparison.`,
+    ];
+
+    for (const target of targets.slice(0, 2)) {
+      const profile = target.pipeline.execution.data.fundamentals.profile;
+      if (profile.oneLiner) {
+        points.push(
+          isZh
+            ? `${target.identity.symbol} 的基础定位是「${profile.oneLiner}」，这决定了它在这层关系里扮演的角色。`
+            : `${target.identity.symbol} is fundamentally positioned as "${profile.oneLiner}", which shapes its role in the linkage.`,
+        );
+      }
+    }
+
+    return points;
+  }
+
+  private buildRelationshipTransmissionPoints(
+    targets: TargetPipeline[],
+    isZh: boolean,
+  ): string[] {
+    const points: string[] = [];
+    for (const target of targets.slice(0, 2)) {
+      const evidence = target.pipeline.analysis.evidence[0] ?? target.pipeline.analysis.reason;
+      points.push(
+        isZh
+          ? `${target.identity.symbol} 这一侧当前最可见的传导线索是：${evidence}`
+          : `The clearest visible transmission clue on the ${target.identity.symbol} side is: ${evidence}`,
+      );
+    }
+
+    points.push(
+      isZh
+        ? '如果这层关系真实存在，它通常会先体现在用户、流动性、业务量、生态采用或叙事注意力的传导上，而不是永远体现为同步涨跌。'
+        : 'If the linkage is real, it should usually show up first through users, liquidity, business activity, ecosystem adoption, or narrative attention, not as permanent one-to-one price co-movement.',
+    );
+
+    return points;
+  }
+
+  private buildRelationshipEvidencePoints(
+    targets: TargetPipeline[],
+    isZh: boolean,
+  ): string[] {
+    const points: string[] = [];
+    for (const target of targets.slice(0, 2)) {
+      const execution = target.pipeline.execution;
+      const openResearchCount = execution.data.openResearch.items.length;
+      const degraded = execution.degradedNodes.length;
+      points.push(
+        isZh
+          ? `${target.identity.symbol} 一侧已有 ${openResearchCount} 条外部检索证据、${degraded} 个降级数据模块；这意味着关系判断有基础，但证据强度仍需分层看待。`
+          : `${target.identity.symbol} currently has ${openResearchCount} open-web evidence items and ${degraded} degraded data modules, which means the relationship case has some basis but still needs evidence-tier separation.`,
+      );
+    }
+
+    points.push(
+      isZh
+        ? '反证通常来自三类情况：价格并未跟随、采用数据没有同步变化、以及所谓关系只停留在口径或社区叙事里。'
+        : 'Counter-evidence usually comes from three places: price not following through, adoption data failing to move together, and the claimed linkage remaining only in messaging or community narrative.',
+    );
+
+    return points;
+  }
+
+  private buildRelationshipValidationPoints(
+    targets: TargetPipeline[],
+    isZh: boolean,
+  ): string[] {
+    const points: string[] = [];
+    for (const target of targets.slice(0, 2)) {
+      const missing = target.pipeline.execution.missingEvidence;
+      const degraded = target.pipeline.execution.degradedNodes;
+      points.push(
+        isZh
+          ? `${target.identity.symbol}：已验证部分主要来自已抓到的市场、基本面与外部材料；仍待验证的部分包括 ${[...missing, ...degraded].join('、') || '更细的使用量和传导数据'}。`
+          : `${target.identity.symbol}: the verified portion mainly comes from captured market, fundamentals, and external materials; what still needs validation includes ${[...missing, ...degraded].join(', ') || 'finer-grained usage and transmission data'}.`,
+      );
+    }
+
+    points.push(
+      isZh
+        ? '如果后续看不到业务量、采用率、链上活动或注意力的持续传导，这层关系就更应被视为“方向性叙事”，而不是强验证关系。'
+        : 'If business activity, adoption, on-chain usage, or attention fail to transmit persistently, the linkage should be treated as a directional narrative rather than a strongly verified relationship.',
+    );
+
+    return points;
+  }
+
+  private inferRelationshipType(query: string, isZh: boolean): string {
+    const normalized = query.toLowerCase();
+    if (normalized.includes('价值捕获') || normalized.includes('value capture')) {
+      return isZh ? '价值捕获关系' : 'value-capture relationship';
+    }
+    if (normalized.includes('业务') || normalized.includes('exchange')) {
+      return isZh ? '业务传导关系' : 'business-transmission relationship';
+    }
+    if (normalized.includes('生态')) {
+      return isZh ? '生态依附关系' : 'ecosystem linkage';
+    }
+    if (normalized.includes('联动') || normalized.includes('correlation')) {
+      return isZh ? '联动关系' : 'co-movement relationship';
+    }
+    return isZh ? '结构性关系' : 'structural relationship';
   }
 
   private buildZhComparisonOverview(

@@ -253,6 +253,10 @@ export class ReportNodeService {
         change7dPct: price.change7dPct,
         volume24hUsd: price.totalVolume24hUsd,
         marketCapRank: price.marketCapRank,
+        marketCapUsd: price.marketCapUsd ?? null,
+        fdvUsd: price.fdvUsd,
+        circulatingSupply: price.circulatingSupply,
+        maxSupply: price.maxSupply,
       },
       recentEvidence: {
         news: execution.data.news.items.map((item) => ({
@@ -320,11 +324,44 @@ export class ReportNodeService {
           liquidityDrop1hPct: liquidity.liquidityDrop1hPct,
           priceImpact1kPct: liquidity.priceImpact1kPct,
           rugpullRiskSignal: liquidity.rugpullRiskSignal,
+          topVenues: liquidity.topVenues ?? [],
+          venueCount: liquidity.venueCount ?? null,
         },
         inflationRate: tokenomics.inflationRate.currentAnnualPct,
         projectName: fundamentals.profile.name,
         projectOneLiner: fundamentals.profile.oneLiner,
         fundamentalsTags: fundamentals.profile.tags,
+      },
+      fundamentals: {
+        totalFundingUsd: fundamentals.profile.totalFundingUsd,
+        rtScore: fundamentals.profile.rtScore,
+        tvlScore: fundamentals.profile.tvlScore,
+        investorCount: fundamentals.investors.length,
+        topInvestors: fundamentals.investors.map((item) => item.name).slice(0, 5),
+        fundraisingCount: fundamentals.fundraising.length,
+        latestRound:
+          fundamentals.fundraising.length > 0
+            ? {
+                round: fundamentals.fundraising[0]?.round ?? null,
+                amountUsd: fundamentals.fundraising[0]?.amountUsd ?? null,
+                publishedAt: fundamentals.fundraising[0]?.publishedAt ?? null,
+                investors: fundamentals.fundraising[0]?.investors ?? [],
+              }
+            : null,
+        ecosystemCount:
+          fundamentals.ecosystems.ecosystems.length +
+          fundamentals.ecosystems.onMainNet.length +
+          fundamentals.ecosystems.onTestNet.length +
+          fundamentals.ecosystems.planToLaunch.length,
+        ecosystemHighlights: [
+          ...fundamentals.ecosystems.ecosystems,
+          ...fundamentals.ecosystems.onMainNet,
+          ...fundamentals.ecosystems.onTestNet,
+          ...fundamentals.ecosystems.planToLaunch,
+        ].slice(0, 6),
+        socialFollowers: fundamentals.social.followers,
+        hotIndexScore: fundamentals.social.hotIndexScore,
+        socialLinks: fundamentals.social.socialLinks,
       },
       decision: {
         verdict: input.analysis.verdict,
@@ -424,11 +461,14 @@ export class ReportNodeService {
       fallback: () => this.toNarrativeFallback(fallback),
     });
 
+    const finalizedReport = this.finalizeReport(
+      this.composeReport(narrative.data, fallback, input),
+      input,
+    );
+    this.auditStructuredDataCoverage(finalizedReport, input);
+
     return {
-      report: this.finalizeReport(
-        this.composeReport(narrative.data, fallback, input),
-        input,
-      ),
+      report: finalizedReport,
       meta: narrative.meta,
     };
   }
@@ -1140,6 +1180,14 @@ export class ReportNodeService {
       input.responseMode,
       input.isZh,
     );
+    const liquidityStructureTable = this.buildLiquidityStructureTable(
+      input.execution,
+      input.isZh,
+    );
+    const fundamentalsDetailTable = this.buildFundamentalsDetailTable(
+      input.execution,
+      input.isZh,
+    );
     const externalEvidence = this.buildExternalEvidenceSubsection(
       input.execution,
       input.isZh,
@@ -1156,6 +1204,20 @@ export class ReportNodeService {
         '',
         input.isZh ? '### 一眼先看' : '### Snapshot',
         snapshotTable,
+      );
+    }
+    if (liquidityStructureTable) {
+      blocks.push(
+        '',
+        input.isZh ? '### 流动性结构' : '### Liquidity Structure',
+        liquidityStructureTable,
+      );
+    }
+    if (fundamentalsDetailTable) {
+      blocks.push(
+        '',
+        input.isZh ? '### 基本面抓手' : '### Fundamentals Detail',
+        fundamentalsDetailTable,
       );
     }
 
@@ -1214,6 +1276,10 @@ export class ReportNodeService {
       return `${(value / 1_000_000).toFixed(2)}M`;
     if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(2)}K`;
     return value.toFixed(2);
+  }
+
+  private fmtValue(value: number | null): string {
+    return this.fmt(value);
   }
 
   private buildMarketContextLine(
@@ -1332,7 +1398,7 @@ export class ReportNodeService {
     const news = execution.data.news;
 
     if (openResearch.enabled && openResearch.takeaways.length > 0) {
-      const takeaway = openResearch.takeaways[0];
+      const takeaway = openResearch.takeaways.slice(0, 2).join('；');
       return responseMode === 'explain'
         ? isZh
           ? `结合开放检索，当前最值得关注的新线索是：${takeaway}`
@@ -1343,14 +1409,17 @@ export class ReportNodeService {
     }
 
     if (news.items.length > 0) {
-      const latest = news.items[0];
+      const latest = news.items
+        .slice(0, 2)
+        .map((item) => `${item.source}《${item.title}》`)
+        .join('、');
       return responseMode === 'explain'
         ? isZh
-          ? `最近公开信息里，最相关的一条是 ${latest.source} 的《${latest.title}》，说明市场正在围绕这类变化重新定价。`
-          : `Among recent public items, the most relevant one is ${latest.source}'s "${latest.title}", which suggests the market is repricing around that change.`
+          ? `最近公开信息里，最相关的线索包括 ${latest}，说明市场正在围绕这类变化重新定价。`
+          : `Among recent public items, the most relevant clues include ${latest}, which suggests the market is repricing around that change.`
         : isZh
-          ? `最近公开信息里，最相关的一条是 ${latest.source} 的《${latest.title}》，这会直接影响当前投资判断应如何定调。`
-          : `Among recent public items, the most relevant one is ${latest.source}'s "${latest.title}", which directly affects how the current investment view should be framed.`;
+          ? `最近公开信息里，最相关的线索包括 ${latest}，这会直接影响当前投资判断应如何定调。`
+          : `Among recent public items, the most relevant clues include ${latest}, which directly affects how the current investment view should be framed.`;
     }
 
     return null;
@@ -1368,6 +1437,7 @@ export class ReportNodeService {
     const security = execution.data.security;
     const liquidity = execution.data.liquidity;
     const openResearch = execution.data.openResearch;
+    const primaryVenue = liquidity.primaryVenue ?? liquidity.topVenues?.[0] ?? null;
 
     const rows: Array<[string, string, string]> =
       responseMode === 'explain'
@@ -1389,6 +1459,25 @@ export class ReportNodeService {
                 : isZh
                   ? `分数 ${sentiment.sentimentScore.toFixed(1)}`
                   : `Score ${sentiment.sentimentScore.toFixed(1)}`,
+            ],
+            [
+              isZh ? '主市场' : 'Primary Venue',
+              primaryVenue?.pairLabel ??
+                (liquidity.quoteToken === 'OTHER'
+                  ? '-'
+                  : `${execution.identity.symbol}/${liquidity.quoteToken}`),
+              primaryVenue
+                ? [
+                    primaryVenue.venueName,
+                    primaryVenue.liquidityUsd !== null
+                      ? this.fmt(primaryVenue.liquidityUsd)
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' / ')
+                : isZh
+                  ? '看主流动性落点'
+                  : 'Checks where liquidity concentrates',
             ],
             [
               isZh ? '链上资金' : 'On-chain',
@@ -1417,6 +1506,25 @@ export class ReportNodeService {
               isZh ? '安全/流动性' : 'Risk',
               `${security.riskLevel} / ${liquidity.rugpullRiskSignal}`,
               isZh ? '决定是否真的可参与' : 'Determines practical investability',
+            ],
+            [
+              isZh ? '主市场' : 'Primary Venue',
+              primaryVenue?.pairLabel ??
+                (liquidity.quoteToken === 'OTHER'
+                  ? '-'
+                  : `${execution.identity.symbol}/${liquidity.quoteToken}`),
+              primaryVenue
+                ? [
+                    primaryVenue.venueName,
+                    primaryVenue.marketSharePct !== null
+                      ? `${primaryVenue.marketSharePct.toFixed(1)}% share`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' / ')
+                : isZh
+                  ? '看流动性集中度'
+                  : 'Shows where liquidity concentrates',
             ],
             [
               isZh ? '市场情绪' : 'Sentiment',
@@ -1461,7 +1569,7 @@ export class ReportNodeService {
     const news = execution.data.news;
 
     if (openResearch?.enabled && openResearch.items.length > 0) {
-      for (const item of openResearch.items.slice(0, 2)) {
+      for (const item of openResearch.items.slice(0, 4)) {
         parts.push(
           isZh
             ? `- ${item.source}：${item.title}`
@@ -1469,7 +1577,7 @@ export class ReportNodeService {
         );
       }
     } else if (news.items.length > 0) {
-      for (const item of news.items.slice(0, 2)) {
+      for (const item of news.items.slice(0, 4)) {
         parts.push(
           isZh
             ? `- ${item.source}：${item.title}`
@@ -1483,6 +1591,108 @@ export class ReportNodeService {
 
   private renderNarrativeParagraphs(points: string[]): string {
     return points.map((point) => point.trim()).filter(Boolean).join('\n\n');
+  }
+
+  private buildLiquidityStructureTable(
+    execution: ExecutionOutput,
+    isZh: boolean,
+  ): string | null {
+    const venues = (execution.data.liquidity.topVenues ?? []).slice(0, 4);
+    if (venues.length === 0) {
+      return null;
+    }
+
+    return [
+      `| ${isZh ? '市场/池子' : 'Venue'} | ${isZh ? '交易对' : 'Pair'} | ${isZh ? '深度与成交' : 'Depth And Volume'} |`,
+      '|---|---|---|',
+      ...venues.map((venue) => {
+        const facts = [
+          venue.liquidityUsd !== null ? `$${this.fmtValue(venue.liquidityUsd)}` : null,
+          venue.volume24hUsd !== null
+            ? `${isZh ? '24h量' : '24h vol'} ${this.fmtValue(venue.volume24hUsd)}`
+            : null,
+          venue.marketSharePct !== null
+            ? `${venue.marketSharePct.toFixed(1)}% ${isZh ? '占比' : 'share'}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' / ');
+        return `| ${venue.venueName ?? (venue.venueType === 'dex_pool' ? 'DEX Pool' : 'CEX Market')} | ${venue.pairLabel} | ${facts} |`;
+      }),
+    ].join('\n');
+  }
+
+  private buildFundamentalsDetailTable(
+    execution: ExecutionOutput,
+    isZh: boolean,
+  ): string | null {
+    const fundamentals = execution.data.fundamentals;
+    const rows: Array<[string, string, string]> = [];
+
+    if (fundamentals.profile.totalFundingUsd !== null) {
+      rows.push([
+        isZh ? '累计融资' : 'Funding',
+        `$${this.fmtValue(fundamentals.profile.totalFundingUsd)}`,
+        isZh ? '资本背书强度' : 'Capital support',
+      ]);
+    }
+    if (fundamentals.investors.length > 0) {
+      rows.push([
+        isZh ? '投资方' : 'Investors',
+        fundamentals.investors
+          .map((item) => item.name)
+          .slice(0, 3)
+          .join(', '),
+        isZh
+          ? `共 ${fundamentals.investors.length} 家`
+          : `${fundamentals.investors.length} investors`,
+      ]);
+    }
+    if (fundamentals.fundraising.length > 0) {
+      const latestRound = fundamentals.fundraising[0];
+      rows.push([
+        isZh ? '最近融资' : 'Latest Round',
+        [latestRound.round, latestRound.amountUsd !== null ? `$${this.fmtValue(latestRound.amountUsd)}` : null]
+          .filter(Boolean)
+          .join(' / '),
+        latestRound.investors.slice(0, 2).join(', ') ||
+          (isZh ? '未披露投资方' : 'No named investors'),
+      ]);
+    }
+    const ecosystems = [
+      ...fundamentals.ecosystems.ecosystems,
+      ...fundamentals.ecosystems.onMainNet,
+      ...fundamentals.ecosystems.onTestNet,
+      ...fundamentals.ecosystems.planToLaunch,
+    ];
+    if (ecosystems.length > 0) {
+      rows.push([
+        isZh ? '生态触点' : 'Ecosystem',
+        ecosystems.slice(0, 3).join(', '),
+        isZh ? `共 ${ecosystems.length} 个方向` : `${ecosystems.length} ecosystem hooks`,
+      ]);
+    }
+    if (fundamentals.social.followers !== null) {
+      rows.push([
+        isZh ? '社交关注' : 'Followers',
+        fundamentals.social.followers.toLocaleString(),
+        fundamentals.social.hotIndexScore !== null
+          ? `Hot ${fundamentals.social.hotIndexScore.toFixed(1)}`
+          : isZh
+            ? '市场关注度'
+            : 'Audience context',
+      ]);
+    }
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return [
+      `| ${isZh ? '维度' : 'Dimension'} | ${isZh ? '信息' : 'Detail'} | ${isZh ? '含义' : 'Meaning'} |`,
+      '|---|---|---|',
+      ...rows.map(([label, value, meaning]) => `| ${label} | ${value} | ${meaning} |`),
+    ].join('\n');
   }
 
   private safePct(value: number | null): string {
@@ -1554,6 +1764,94 @@ export class ReportNodeService {
           triggers: 'Key Triggers',
           risks: 'Risks And Response',
         };
+  }
+
+  private auditStructuredDataCoverage(
+    report: ReportOutput,
+    input: RenderReportInput,
+  ): void {
+    const text = [
+      report.title,
+      report.executiveSummary,
+      report.body,
+      report.sections.flatMap((section) => section.points).join('\n'),
+    ]
+      .join('\n')
+      .toLowerCase();
+    const symbol = input.execution.identity.symbol;
+    const liquidityVenues = (input.execution.data.liquidity.topVenues ?? []).slice(
+      0,
+      3,
+    );
+    if (
+      liquidityVenues.length > 0 &&
+      !liquidityVenues.some((venue) =>
+        this.containsAnyText(text, [
+          venue.pairLabel,
+          venue.venueName,
+          venue.quoteToken,
+          venue.sourceId,
+        ]),
+      )
+    ) {
+      this.logger.warn(
+        `Rich liquidity evidence available but not surfaced in report for ${symbol}: ${liquidityVenues
+          .map((venue) => venue.pairLabel)
+          .join(', ')}`,
+      );
+    }
+
+    const fundamentals = input.execution.data.fundamentals;
+    const fundamentalMarkers = [
+      fundamentals.profile.oneLiner,
+      ...fundamentals.profile.tags.slice(0, 3),
+      ...fundamentals.investors.map((item) => item.name).slice(0, 3),
+      ...fundamentals.fundraising
+        .flatMap((round) => [round.round, ...round.investors])
+        .slice(0, 4),
+      ...[
+        ...fundamentals.ecosystems.ecosystems,
+        ...fundamentals.ecosystems.onMainNet,
+        ...fundamentals.ecosystems.onTestNet,
+        ...fundamentals.ecosystems.planToLaunch,
+      ].slice(0, 4),
+    ];
+    if (
+      fundamentalMarkers.length >= 2 &&
+      !this.containsAnyText(text, fundamentalMarkers)
+    ) {
+      this.logger.warn(
+        `Rich fundamentals evidence available but not surfaced in report for ${symbol}.`,
+      );
+    }
+
+    const tokenomics = input.execution.data.tokenomics;
+    const hasRichTokenomics =
+      tokenomics.burns.recentBurns.length > 0 ||
+      tokenomics.buybacks.recentBuybacks.length > 0 ||
+      tokenomics.fundraising.rounds.length > 0;
+    if (
+      hasRichTokenomics &&
+      !this.containsAnyText(text, [
+        'burn',
+        '销毁',
+        'buyback',
+        '回购',
+        'fundraising',
+        '融资',
+      ])
+    ) {
+      this.logger.warn(
+        `Rich tokenomics events available but not surfaced in report for ${symbol}.`,
+      );
+    }
+  }
+
+  private containsAnyText(text: string, candidates: Array<string | null | undefined>): boolean {
+    return candidates.some((candidate) => {
+      const normalized = candidate?.trim().toLowerCase();
+      return Boolean(normalized && text.includes(normalized));
+    });
   }
 
   private inferResponseMode(intent: IntentOutput): PlanResponseMode {

@@ -120,4 +120,34 @@ describe('PlanningNodeService', () => {
     expect(result.openResearch.enabled).toBe(true);
     expect(result.openResearch.depth).toBe('heavy');
   });
+
+  it('should keep relationship-analysis questions in explain mode with relationship sub-questions', async () => {
+    const service = new PlanningNodeService(runtimeStub as LlmRuntimeService);
+    const result = await service.build({
+      intent: {
+        ...baseIntent,
+        userQuery: 'BONK和SOL生态之间是什么关系？',
+        taskType: 'multi_asset',
+        outputGoal: 'analysis',
+        objective: 'relationship_analysis',
+        entities: ['BONK', 'SOL'],
+        entityMentions: ['BONK', 'SOL'],
+        symbols: ['BONK', 'SOL'],
+        focusAreas: ['project_fundamentals', 'news_events'],
+      },
+      identity: {
+        symbol: 'BONK',
+        chain: 'solana',
+        tokenAddress: '',
+        sourceId: 'coingecko:bonk',
+      },
+    });
+
+    expect(result.responseMode).toBe('explain');
+    expect(
+      result.subTasks.some((task) => task.includes('relationship')),
+    ).toBe(true);
+    expect(result.openResearch.enabled).toBe(true);
+    expect(result.openResearch.topics.join(' ')).toContain('relationship');
+  });
 });
