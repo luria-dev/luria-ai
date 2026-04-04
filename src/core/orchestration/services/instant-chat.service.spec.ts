@@ -1,10 +1,14 @@
 import type {
   AnalyzeCandidate,
   AnalyzeIdentity,
+  FundamentalsSnapshot,
+  NewsSnapshot,
   PriceSnapshot,
   TechnicalSnapshot,
 } from '../../../data/contracts/analyze-contracts';
+import { FundamentalsService } from '../../../modules/data/fundamentals/fundamentals.service';
 import { MarketService } from '../../../modules/data/market/market.service';
+import { NewsService } from '../../../modules/data/news/news.service';
 import { SearcherService } from '../../../modules/data/searcher/searcher.service';
 import { TechnicalService } from '../../../modules/data/technical/technical.service';
 import { LlmRuntimeService } from '../../../modules/workflow/runtime/llm-runtime.service';
@@ -78,6 +82,79 @@ describe('InstantChatService', () => {
     degraded: false,
   };
 
+  const newsSnapshot: NewsSnapshot = {
+    items: [
+      {
+        id: 'news-1',
+        title: 'Bitcoin ETF demand stabilizes after volatile week',
+        url: 'https://example.com/btc-news',
+        source: 'CoinDesk',
+        publishedAt: '2026-03-28T00:00:00.000Z',
+        category: 'market',
+        relevanceScore: 0.91,
+      },
+    ],
+    asOf: '2026-03-29T00:00:00.000Z',
+    sourceUsed: 'coindesk',
+    degraded: false,
+  };
+
+  const fundamentalsSnapshot: FundamentalsSnapshot = {
+    profile: {
+      projectId: 1,
+      name: 'Bitcoin',
+      tokenSymbol: 'BTC',
+      oneLiner: 'Digital bearer asset with fixed supply.',
+      description: 'Bitcoin is a decentralized monetary network.',
+      establishmentDate: '2009-01-03',
+      active: true,
+      logoUrl: null,
+      rootdataUrl: null,
+      tags: ['store-of-value'],
+      totalFundingUsd: 21000000,
+      rtScore: null,
+      tvlScore: null,
+      similarProjects: [],
+    },
+    team: [],
+    investors: [{ name: 'Founders Fund', type: 'VC', logoUrl: null }],
+    fundraising: [
+      {
+        round: 'Strategic',
+        amountUsd: 21000000,
+        valuationUsd: null,
+        publishedAt: '2026-03-01',
+        investors: ['Founders Fund'],
+      },
+    ],
+    ecosystems: {
+      ecosystems: ['Lightning'],
+      onMainNet: ['Lightning'],
+      onTestNet: [],
+      planToLaunch: [],
+    },
+    social: {
+      heat: null,
+      heatRank: null,
+      influence: null,
+      influenceRank: null,
+      followers: 12000000,
+      following: null,
+      hotIndexScore: null,
+      hotIndexRank: null,
+      xHeatScore: null,
+      xHeatRank: null,
+      xInfluenceScore: null,
+      xInfluenceRank: null,
+      xFollowersScore: null,
+      xFollowersRank: null,
+      socialLinks: [],
+    },
+    asOf: '2026-03-29T00:00:00.000Z',
+    sourceUsed: ['rootdata'],
+    degraded: false,
+  };
+
   function intentJson(
     overrides?: Partial<{
       assetDecision: 'explicit' | 'inherit' | 'none';
@@ -108,6 +185,8 @@ describe('InstantChatService', () => {
   function createService(overrides?: {
     searcherResolve?: jest.Mock;
     generateText?: jest.Mock;
+    fetchLatestNews?: jest.Mock;
+    fetchFundamentals?: jest.Mock;
   }) {
     const conversations = new InstantConversationService();
     const llm = {
@@ -148,12 +227,26 @@ describe('InstantChatService', () => {
       fetchSnapshot: jest.fn().mockResolvedValue(technicalSnapshot),
     } as Pick<TechnicalService, 'fetchSnapshot'>;
 
+    const news = {
+      fetchLatest:
+        overrides?.fetchLatestNews ??
+        jest.fn().mockResolvedValue(newsSnapshot),
+    } as Pick<NewsService, 'fetchLatest'>;
+
+    const fundamentals = {
+      fetchSnapshot:
+        overrides?.fetchFundamentals ??
+        jest.fn().mockResolvedValue(fundamentalsSnapshot),
+    } as Pick<FundamentalsService, 'fetchSnapshot'>;
+
     const service = new InstantChatService(
       llm as LlmRuntimeService,
       conversations,
       searcher as SearcherService,
       market as MarketService,
       technical as TechnicalService,
+      news as NewsService,
+      fundamentals as FundamentalsService,
     );
 
     return {
@@ -163,11 +256,14 @@ describe('InstantChatService', () => {
       searcher,
       market,
       technical,
+      news,
+      fundamentals,
     };
   }
 
-  it('injects resolved market and technical snapshots into the answer prompt', async () => {
-    const { service, llm, searcher, market, technical } = createService();
+  it('injects resolved market, technical, and lightweight evidence into assess prompts', async () => {
+    const { service, llm, searcher, market, technical, news, fundamentals } =
+      createService();
 
     await service.reply({
       threadId: 'thread-1',
@@ -180,6 +276,8 @@ describe('InstantChatService', () => {
     expect(searcher.resolve).toHaveBeenCalledWith('BTC 现在能买吗');
     expect(market.fetchPrice).toHaveBeenCalledWith(identity);
     expect(technical.fetchSnapshot).toHaveBeenCalledWith(identity, '24h');
+    expect(news.fetchLatest).toHaveBeenCalledWith(identity, 3);
+    expect(fundamentals.fetchSnapshot).toHaveBeenCalledWith(identity);
 
     const prompts = (llm.generateText as jest.Mock).mock.calls.map(
       ([input]) => input.userPrompt as string,
@@ -193,6 +291,18 @@ describe('InstantChatService', () => {
     expect(prompts.some((prompt) => prompt.includes('RSI14: 58.3'))).toBe(true);
     expect(prompts.some((prompt) => prompt.includes('Bollinger upper: 69000'))).toBe(
       true,
+    );
+    expect(
+      prompts.some((prompt) => prompt.includes('Resolved response mode: assess')),
+    ).toBe(true);
+    expect(
+      prompts.some((prompt) => prompt.includes('Recent external evidence:')),
+    ).toBe(true);
+    expect(
+      prompts.some((prompt) => prompt.includes('Fundamentals snapshot:')),
+    ).toBe(true);
+    expect((llm.generateText as jest.Mock).mock.calls[1][0].maxTokens).toBe(
+      1300,
     );
   });
 
@@ -293,7 +403,16 @@ describe('InstantChatService', () => {
         },
       });
 
-    const { service, conversations, llm, searcher, market, technical } =
+    const {
+      service,
+      conversations,
+      llm,
+      searcher,
+      market,
+      technical,
+      news,
+      fundamentals,
+    } =
       createService({
         searcherResolve: jest.fn().mockResolvedValue({
           kind: 'not_found' as const,
@@ -330,8 +449,14 @@ describe('InstantChatService', () => {
     expect(searcher.resolve).not.toHaveBeenCalled();
     expect(market.fetchPrice).toHaveBeenCalledWith(identity);
     expect(technical.fetchSnapshot).toHaveBeenCalledWith(identity, '24h');
+    expect(news.fetchLatest).not.toHaveBeenCalled();
+    expect(fundamentals.fetchSnapshot).not.toHaveBeenCalled();
     expect(result.resolvedIdentity).toEqual(identity);
     expect(result.goal).toBe('risk_levels');
+    expect(result.responseMode).toBe('act');
+    expect((llm.generateText as jest.Mock).mock.calls[1][0].maxTokens).toBe(
+      900,
+    );
 
     const parsePrompt = (llm.generateText as jest.Mock).mock.calls[0][0]
       .userPrompt as string;
@@ -403,5 +528,96 @@ describe('InstantChatService', () => {
     expect(technical.fetchSnapshot).toHaveBeenCalledWith(identity, '7d');
     expect(result.timeWindow).toBe('7d');
     expect(conversations.get('thread-window')?.lastTimeWindow).toBe('7d');
+  });
+
+  it('uses explain mode for mechanism-style questions and includes lightweight evidence', async () => {
+    const { service, llm, news, fundamentals } = createService();
+
+    const result = await service.reply({
+      threadId: 'thread-explain',
+      requestId: 'req-explain',
+      message: 'LINK为什么有用但不涨？',
+      timeWindow: '60d',
+      lang: 'cn',
+    });
+
+    expect(result.responseMode).toBe('explain');
+    expect(news.fetchLatest).toHaveBeenCalledTimes(1);
+    expect(fundamentals.fetchSnapshot).toHaveBeenCalledTimes(1);
+
+    const answerPrompt = (llm.generateText as jest.Mock).mock.calls[1][0]
+      .userPrompt as string;
+    expect(answerPrompt).toContain('Resolved response mode: explain');
+    expect(answerPrompt).toContain('只输出可稳定解析的 Markdown');
+    expect(answerPrompt).toContain('开头先给一句简短的解释型结论');
+    expect((llm.generateText as jest.Mock).mock.calls[1][0].maxTokens).toBe(
+      1600,
+    );
+  });
+
+  it('normalizes decorative bold labels into stable markdown paragraphs or headings', () => {
+    const { service } = createService();
+
+    const normalized = (
+      service as unknown as {
+        normalizeInstantMarkdown: (content: string) => string;
+      }
+    ).normalizeInstantMarkdown([
+      '**快速判断：** 当前更适合等待。',
+      '**行动建议：**',
+      '- 等待价格回到支撑附近',
+    ].join('\n'));
+
+    expect(normalized).toContain('快速判断：当前更适合等待。');
+    expect(normalized).toContain('### 行动建议');
+    expect(normalized).not.toContain('**快速判断：**');
+    expect(normalized).not.toContain('**行动建议：**');
+  });
+
+  it('normalizes decorative bold labels inside bullet lists', () => {
+    const { service } = createService();
+
+    const normalized = (
+      service as unknown as {
+        normalizeInstantMarkdown: (content: string) => string;
+      }
+    ).normalizeInstantMarkdown([
+      '- **当前状态**：技术面中性。',
+      '- **主要风险**：缺少价格锚点。',
+    ].join('\n'));
+
+    expect(normalized).toContain('- 当前状态：技术面中性。');
+    expect(normalized).toContain('- 主要风险：缺少价格锚点。');
+    expect(normalized).not.toContain('**当前状态**');
+    expect(normalized).not.toContain('**主要风险**');
+  });
+
+  it('keeps markdown table rows contiguous without blank lines in between', () => {
+    const { service } = createService();
+
+    const normalized = (
+      service as unknown as {
+        normalizeInstantMarkdown: (content: string) => string;
+      }
+    ).normalizeInstantMarkdown([
+      '先看核心信息',
+      '| 指标 | 数值 |',
+      '| --- | --- |',
+      '| 价格 | 68000 |',
+      '| RSI | 58.3 |',
+      '后面继续说明',
+    ].join('\n'));
+
+    expect(normalized).toContain(
+      ['| 指标 | 数值 |', '| --- | --- |', '| 价格 | 68000 |', '| RSI | 58.3 |'].join(
+        '\n',
+      ),
+    );
+    expect(normalized).toContain(
+      ['先看核心信息', '', '| 指标 | 数值 |'].join('\n'),
+    );
+    expect(normalized).toContain(
+      ['| RSI | 58.3 |', '', '后面继续说明'].join('\n'),
+    );
   });
 });

@@ -1,0 +1,29 @@
+[
+  {
+    "idx": 1,
+    "slug": "instant-explain-link",
+    "message": "LINK的价值捕获机制是什么？为什么很多人觉得它有用但不涨？",
+    "requestId": "25ac11ea-caf1-48d5-a123-b44ef7c7f017",
+    "status": "ready",
+    "file": "01-instant-explain-link.md",
+    "chars": 2139
+  },
+  {
+    "idx": 2,
+    "slug": "instant-assess-btc",
+    "message": "BTC现在适合投资吗？为什么？",
+    "requestId": "f6a3b679-e343-4994-9c90-062370391af3",
+    "status": "ready",
+    "file": "02-instant-assess-btc.md",
+    "chars": 1248
+  },
+  {
+    "idx": 3,
+    "slug": "instant-act-btc-levels",
+    "message": "BTC现在支撑位和止损怎么设？",
+    "requestId": "d48eb9e3-e3fe-4124-9e5b-a83725d32fcb",
+    "status": "ready",
+    "file": "03-instant-act-btc-levels.md",
+    "chars": 594
+  }
+]

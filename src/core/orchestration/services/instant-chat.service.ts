@@ -3,10 +3,14 @@ import { z } from 'zod';
 import type {
   AnalyzeCandidate,
   AnalyzeIdentity,
+  FundamentalsSnapshot,
+  NewsSnapshot,
   PriceSnapshot,
   TechnicalSnapshot,
 } from '../../../data/contracts/analyze-contracts';
+import { FundamentalsService } from '../../../modules/data/fundamentals/fundamentals.service';
 import { MarketService } from '../../../modules/data/market/market.service';
+import { NewsService } from '../../../modules/data/news/news.service';
 import { SearcherService } from '../../../modules/data/searcher/searcher.service';
 import { TechnicalService } from '../../../modules/data/technical/technical.service';
 import { LlmRuntimeService } from '../../../modules/workflow/runtime/llm-runtime.service';
@@ -27,7 +31,10 @@ type InstantReplyResult = {
   timeWindow: '24h' | '7d' | '30d' | '60d';
   goal: string | null;
   scope: InstantTurnContext['scope'];
+  responseMode: InstantResponseMode;
 };
+
+type InstantResponseMode = 'explain' | 'assess' | 'act';
 
 type InstantDataContext = {
   snapshotText: string | null;
@@ -36,6 +43,7 @@ type InstantDataContext = {
   goal: string | null;
   scope: InstantTurnContext['scope'];
   needsClarification: boolean;
+  responseMode: InstantResponseMode;
 };
 
 const instantIntentSchema = z.object({
@@ -61,24 +69,25 @@ export class InstantChatService {
     'Your job is to provide quick but substantive answers, not a full research report.',
     '',
     '## Output Requirements',
-    '1. ALWAYS include these if available:',
-    '   - Current price',
-    '   - 24h change percentage',
-    '   - Key support and resistance levels',
-    '2. When mentioning technical indicators, include specific values:',
-    '   - RSI value (e.g., "RSI 45" not just "RSI neutral")',
-    '   - Moving averages (MA7, MA25, MA99 positions)',
-    '   - Bollinger Bands position',
-    '3. Format requirements:',
-    '   - First line: Quick conclusion with price and trend',
-    '   - Use 2-3 short paragraphs maximum',
-    '   - Include specific numbers, not vague statements',
-    '4. Rules:',
-    '   - Only cite prices, indicators, and levels that appear in the provided data snapshot',
+    '1. Follow the supplied "Resolved response mode": explain, assess, or act.',
+    '2. Keep the answer compact and useful, but do not compress explain or assess answers into a couple of throwaway lines.',
+    '3. Use exact values from the verified snapshot when numbers are mentioned.',
+    '4. If evidence is missing, say what is missing instead of guessing.',
+    '5. Keep one clean Markdown structure from start to finish instead of mixing decorative labels, fragments, and bullets randomly.',
+    '',
+    '## Mode Rules',
+    '- explain: answer what changed, why it matters, or how the mechanism works. Market and technical data are supporting evidence, not the whole answer. This mode may be visibly longer than act mode.',
+    '- assess: answer whether the asset currently looks attractive or risky. Combine current market state with at least one business, news, or fundamentals fact when available. This mode should be fuller than a one-line verdict.',
+    '- act: answer execution-style questions such as support, resistance, entry, exit, invalidation, or short-term setup. In this mode, price structure and technical levels can lead, and the answer can stay shorter.',
+    '- When a mini table or mini level-map improves scanability, include one.',
+    '',
+    '## Rules:',
+    '   - Only cite prices, indicators, levels, news items, and fundamentals facts that appear in the provided data snapshot',
     '   - Do NOT infer RSI, moving averages, Bollinger Bands, support, or resistance from price alone',
+    '   - Do NOT turn explain or assess answers into trade checklists unless the response mode is act',
     '   - If data is missing, say what specific data is needed',
     '   - Do NOT make guaranteed-return claims',
-    '   - Keep risk notes to one sentence',
+    '   - Keep risk notes concise and concrete',
   ].join('\n');
 
   constructor(
@@ -87,6 +96,8 @@ export class InstantChatService {
     private readonly searcher: SearcherService,
     private readonly market: MarketService,
     private readonly technical: TechnicalService,
+    private readonly news: NewsService,
+    private readonly fundamentals: FundamentalsService,
   ) {}
 
   async reply(input: {
@@ -121,7 +132,7 @@ export class InstantChatService {
         systemPrompt: this.systemPrompt,
         userPrompt: primaryPrompt,
         previousResponseId: conversation?.lastResponseId ?? undefined,
-        maxTokens: 900,
+        maxTokens: this.maxTokensForMode(dataContext.responseMode),
         timeoutMs: 45000,
       });
 
@@ -129,7 +140,7 @@ export class InstantChatService {
         threadId: input.threadId,
         requestId: input.requestId,
         userMessage: input.message,
-        assistantMessage: result.content,
+        assistantMessage: this.normalizeInstantMarkdown(result.content),
         responseId: result.meta.responseId ?? null,
         resolvedIdentity: dataContext.resolvedIdentity,
         timeWindow: dataContext.timeWindow,
@@ -139,7 +150,7 @@ export class InstantChatService {
       });
 
       return {
-        body: result.content,
+        body: this.normalizeInstantMarkdown(result.content),
         responseId: result.meta.responseId ?? null,
         usedPreviousResponseId: Boolean(conversation?.lastResponseId),
         usedLocalFallback: false,
@@ -148,6 +159,7 @@ export class InstantChatService {
         timeWindow: dataContext.timeWindow,
         goal: dataContext.goal,
         scope: dataContext.scope,
+        responseMode: dataContext.responseMode,
       };
     } catch (error) {
       if (!conversation || conversation.turns.length === 0) {
@@ -165,7 +177,7 @@ export class InstantChatService {
         model: 'qwen3-max',
         systemPrompt: this.systemPrompt,
         userPrompt: replayPrompt,
-        maxTokens: 900,
+        maxTokens: this.maxTokensForMode(dataContext.responseMode),
         timeoutMs: 45000,
       });
 
@@ -173,7 +185,7 @@ export class InstantChatService {
         threadId: input.threadId,
         requestId: input.requestId,
         userMessage: input.message,
-        assistantMessage: retried.content,
+        assistantMessage: this.normalizeInstantMarkdown(retried.content),
         responseId: retried.meta.responseId ?? null,
         resolvedIdentity: dataContext.resolvedIdentity,
         timeWindow: dataContext.timeWindow,
@@ -183,7 +195,7 @@ export class InstantChatService {
       });
 
       return {
-        body: retried.content,
+        body: this.normalizeInstantMarkdown(retried.content),
         responseId: retried.meta.responseId ?? null,
         usedPreviousResponseId: false,
         usedLocalFallback: true,
@@ -192,6 +204,7 @@ export class InstantChatService {
         timeWindow: dataContext.timeWindow,
         goal: dataContext.goal,
         scope: dataContext.scope,
+        responseMode: dataContext.responseMode,
       };
     }
   }
@@ -201,12 +214,13 @@ export class InstantChatService {
     lang: RequestLang,
     dataContext: InstantDataContext,
   ): string {
-    const template = this.outputTemplate(lang);
+    const guidelines = this.outputGuidelines(lang, dataContext.responseMode);
     const parts = [
       `User question: ${message}`,
       `Observation window in use: ${dataContext.timeWindow}`,
       `Resolved goal: ${dataContext.goal ?? 'unspecified'}`,
       `Resolved scope: ${dataContext.scope ?? 'general'}`,
+      `Resolved response mode: ${dataContext.responseMode}`,
       `Needs clarification: ${dataContext.needsClarification ? 'yes' : 'no'}`,
     ];
 
@@ -219,13 +233,16 @@ export class InstantChatService {
       '',
       'IMPORTANT:',
       '- Use only the verified market snapshot above',
-      '- Include exact price, 24h change, and indicators only when present in the snapshot',
+      '- Include exact price, indicators, and evidence facts only when present in the snapshot',
       '- If support or resistance levels are unavailable, do not invent them',
       '- If some metrics are unavailable, simply omit them from the answer',
+      `- Follow the ${dataContext.responseMode} mode rules strictly`,
+      ...this.modeWritingDirectives(lang, dataContext.responseMode),
+      ...this.markdownValidityRules(lang),
       '',
-      'Return a compact quick-answer in Markdown using this exact structure:',
-      ...template,
-      'Keep it to 2-3 paragraphs max. Do not turn it into a mini report.',
+      'Return a compact quick-answer in valid Markdown.',
+      ...guidelines,
+      'Keep it readable and scannable. Do not turn it into a deep report, but do not under-answer explain or assess questions.',
     );
 
     return parts.join('\n');
@@ -237,7 +254,7 @@ export class InstantChatService {
     lang: RequestLang,
     dataContext: InstantDataContext,
   ): string {
-    const template = this.outputTemplate(lang);
+    const guidelines = this.outputGuidelines(lang, dataContext.responseMode);
     const parts = [
       'Recent conversation from the same thread is provided below. Keep continuity, but do not repeat background unnecessarily.',
       transcript,
@@ -246,6 +263,7 @@ export class InstantChatService {
       `Observation window in use: ${dataContext.timeWindow}`,
       `Resolved goal: ${dataContext.goal ?? 'unspecified'}`,
       `Resolved scope: ${dataContext.scope ?? 'general'}`,
+      `Resolved response mode: ${dataContext.responseMode}`,
       `Needs clarification: ${dataContext.needsClarification ? 'yes' : 'no'}`,
     ];
 
@@ -256,9 +274,11 @@ export class InstantChatService {
     parts.push(
       `Output language: ${this.toLanguageInstruction(lang)}`,
       'Use only the verified market snapshot for facts and numbers.',
-      'Return a compact quick-answer in Markdown using this exact structure:',
-      ...template,
-      'Assume this is a fast follow-up, not a report request.',
+      ...this.modeWritingDirectives(lang, dataContext.responseMode),
+      ...this.markdownValidityRules(lang),
+      'Return a compact quick-answer in valid Markdown.',
+      ...guidelines,
+      `Assume this is a fast follow-up in ${dataContext.responseMode} mode, not a report request.`,
     );
 
     return parts.join('\n');
@@ -459,6 +479,7 @@ export class InstantChatService {
     );
     const goal = this.resolveGoal(conversation, intentState);
     const scope = this.resolveScope(conversation, intentState);
+    const responseMode = this.inferResponseMode(message, goal, scope);
 
     const assetContext = await this.resolveAssetContext(
       message,
@@ -466,23 +487,33 @@ export class InstantChatService {
       intentState,
     );
     if (assetContext.kind === 'resolved') {
-      const [market, technical] = await Promise.all([
+      const [market, technical, news, fundamentals] = await Promise.all([
         this.market.fetchPrice(assetContext.identity),
         this.technical.fetchSnapshot(assetContext.identity, timeWindow),
+        this.shouldFetchSupplementalEvidence(responseMode)
+          ? this.safeFetchLatestNews(assetContext.identity)
+          : Promise.resolve<NewsSnapshot | null>(null),
+        this.shouldFetchSupplementalEvidence(responseMode)
+          ? this.safeFetchFundamentals(assetContext.identity)
+          : Promise.resolve<FundamentalsSnapshot | null>(null),
       ]);
 
       return {
-        snapshotText: this.buildResolvedSnapshot(
-          assetContext.identity,
+        snapshotText: this.buildResolvedSnapshot({
+          identity: assetContext.identity,
           market,
           technical,
           timeWindow,
-        ),
+          responseMode,
+          news,
+          fundamentals,
+        }),
         resolvedIdentity: assetContext.identity,
         timeWindow,
         goal,
         scope,
         needsClarification: intentState.needsClarification,
+        responseMode,
       };
     }
 
@@ -494,6 +525,7 @@ export class InstantChatService {
         goal,
         scope,
         needsClarification: true,
+        responseMode,
       };
     }
 
@@ -508,7 +540,93 @@ export class InstantChatService {
       goal,
       scope,
       needsClarification: intentState.needsClarification,
+      responseMode,
     };
+  }
+
+  private inferResponseMode(
+    message: string,
+    goal: string | null,
+    scope: InstantTurnContext['scope'],
+  ): InstantResponseMode {
+    const text = `${message} ${goal ?? ''}`.toLowerCase();
+
+    const actPatterns = [
+      /support/,
+      /resistance/,
+      /stop[- ]?loss/,
+      /entry/,
+      /exit/,
+      /take[- ]?profit/,
+      /trigger/,
+      /支撑/,
+      /阻力/,
+      /压力位/,
+      /止损/,
+      /止盈/,
+      /入场/,
+      /出场/,
+      /买点/,
+      /卖点/,
+      /仓位/,
+      /怎么设/,
+      /操作/,
+    ];
+    if (actPatterns.some((pattern) => pattern.test(text))) {
+      return 'act';
+    }
+
+    const assessPatterns = [
+      /能买吗/,
+      /可以买/,
+      /适合投资/,
+      /值得买/,
+      /值不值得/,
+      /风险/,
+      /can i buy/,
+      /should i buy/,
+      /worth buying/,
+      /invest/,
+      /investment/,
+      /attractive/,
+      /估值/,
+      /配置/,
+    ];
+    if (assessPatterns.some((pattern) => pattern.test(text))) {
+      return 'assess';
+    }
+
+    if (scope === 'comparison' || scope === 'multi_asset') {
+      return 'explain';
+    }
+
+    return 'explain';
+  }
+
+  private shouldFetchSupplementalEvidence(
+    responseMode: InstantResponseMode,
+  ): boolean {
+    return responseMode === 'explain' || responseMode === 'assess';
+  }
+
+  private async safeFetchLatestNews(
+    identity: AnalyzeIdentity,
+  ): Promise<NewsSnapshot | null> {
+    try {
+      return await this.news.fetchLatest(identity, 3);
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeFetchFundamentals(
+    identity: AnalyzeIdentity,
+  ): Promise<FundamentalsSnapshot | null> {
+    try {
+      return await this.fundamentals.fetchSnapshot(identity);
+    } catch {
+      return null;
+    }
   }
 
   private resolveTimeWindow(
@@ -636,65 +754,379 @@ export class InstantChatService {
     return lang === 'en' ? 'English' : 'Simplified Chinese';
   }
 
-  private outputTemplate(lang: RequestLang): string[] {
+  private maxTokensForMode(responseMode: InstantResponseMode): number {
+    if (responseMode === 'explain') {
+      return 1600;
+    }
+    if (responseMode === 'assess') {
+      return 1300;
+    }
+    return 900;
+  }
+
+  private modeWritingDirectives(
+    lang: RequestLang,
+    responseMode: InstantResponseMode,
+  ): string[] {
     if (lang === 'en') {
+      if (responseMode === 'explain') {
+        return [
+          '- Aim for a fuller quick answer: usually 3 to 5 short blocks or paragraphs.',
+          '- Explain mechanism, current evidence, and what is still unverified.',
+          '- If it helps, include one compact markdown table or one mini visual block.',
+        ];
+      }
+
+      if (responseMode === 'assess') {
+        return [
+          '- Aim for a medium quick answer: usually 3 to 4 short blocks or paragraphs.',
+          '- Include the judgment, why now, and the main risk or condition change.',
+          '- If it helps, include one compact markdown table or one mini visual block.',
+        ];
+      }
+
       return [
-        '1. `**Quick take:** <one short answer>`',
-        '2. `- Why:` with 2 to 3 short bullets total',
-        '3. `- Action:` with 1 short actionable line',
-        '4. `- Risk:` with 1 short line',
+        '- Keep this one shorter and execution-focused.',
+        '- A compact mini level-map is encouraged when levels are available.',
+      ];
+    }
+
+    if (responseMode === 'explain') {
+      return [
+        '- 这一类快答可以稍长，通常写成 3 到 5 个短块，不要只给两三句。',
+        '- 重点写清机制、当前证据、以及还缺什么验证。',
+        '- 如果有助于扫读，可以加 1 个紧凑 markdown 表或 1 个小型图形块。',
+      ];
+    }
+
+    if (responseMode === 'assess') {
+      return [
+        '- 这一类快答建议写成 3 到 4 个短块，不能只有一句判断。',
+        '- 至少要写清当前判断、为什么是现在、以及主要风险或反转条件。',
+        '- 如果有助于扫读，可以加 1 个紧凑 markdown 表或 1 个小型图形块。',
       ];
     }
 
     return [
-      '1. `**快速结论：**<一句话结论>`',
-      '2. `- 原因：` followed by 2 to 3 short bullets total in Chinese',
-      '3. `- 动作：` with 1 short actionable line in Chinese',
-      '4. `- 风险：` with 1 short line in Chinese',
+      '- 这一类快答保持更短，偏执行和关键位。',
+      '- 如果关键位存在，优先给一个紧凑的小型价位图块。',
     ];
   }
 
-  private buildResolvedSnapshot(
-    identity: AnalyzeIdentity,
-    market: PriceSnapshot,
-    technical: TechnicalSnapshot,
-    timeWindow: '24h' | '7d' | '30d' | '60d',
-  ): string {
+  private markdownValidityRules(lang: RequestLang): string[] {
+    if (lang === 'en') {
+      return [
+        '- Output renderer-safe Markdown only.',
+        '- Use headings, bullet lists, tables, and fenced code blocks only when they are clean and valid.',
+        '- Leave a blank line before and after tables and fenced code blocks.',
+        '- Do not use decorative bold label prefixes such as `**Verdict:**` or `**Action:**`; use a normal paragraph or a real heading instead.',
+        '- If you start a numbered list, keep the numbering contiguous and stable.',
+        '- Do not leave blank lines between table rows.',
+        '- If you use a table, keep column counts consistent and include a header row.',
+      ];
+    }
+
+    return [
+      '- 只输出可稳定解析的 Markdown。',
+      '- 标题、列表、表格、代码块都可以用，但必须写得规范。',
+      '- 表格和 fenced code block 前后都要留空行。',
+      '- 不要写 `**结论：**`、`**行动建议：**` 这类装饰性加粗标签；正常段落或真实标题更好。',
+      '- 如果使用编号列表，编号要连续稳定。',
+      '- 表格内部行与行之间不要插空行。',
+      '- 如果使用表格，必须有表头，且列数保持一致。',
+    ];
+  }
+
+  private outputGuidelines(
+    lang: RequestLang,
+    responseMode: InstantResponseMode,
+  ): string[] {
+    if (lang === 'en') {
+      if (responseMode === 'act') {
+        return [
+          '- Start with a short execution conclusion.',
+          '- Then use a short paragraph, bullets, a small table, or a small fenced code block when helpful.',
+          '- Cover setup, action, and risk clearly, but stay concise.',
+        ];
+      }
+
+      if (responseMode === 'assess') {
+        return [
+          '- Start with a short investment judgment.',
+          '- Use 3 to 4 short blocks when evidence is available.',
+          '- Cover why now, the main risk, and what would change the view.',
+        ];
+      }
+
+      return [
+        '- Start with a short explanatory conclusion.',
+        '- Use 3 to 5 short blocks when evidence is available.',
+        '- Cover mechanism or reason, evidence, and what is still uncertain.',
+      ];
+    }
+
+    if (responseMode === 'act') {
+      return [
+        '- 开头先给一句简短的执行判断。',
+        '- 后面可按需要使用短段落、列表、小表格或小型代码块。',
+        '- 把盘面依据、动作和风险写清楚，但保持简洁。',
+      ];
+    }
+
+    if (responseMode === 'assess') {
+      return [
+        '- 开头先给一句简短的投资判断。',
+        '- 有证据时通常写成 3 到 4 个短块。',
+        '- 至少覆盖为什么是现在、主要风险、以及什么会改变判断。',
+      ];
+    }
+
+    return [
+      '- 开头先给一句简短的解释型结论。',
+      '- 有证据时通常写成 3 到 5 个短块。',
+      '- 至少覆盖机制或原因、证据、以及还不确定什么。',
+    ];
+  }
+
+  private normalizeInstantMarkdown(content: string): string {
+    const normalized = content.replace(/\r\n/g, '\n').trim();
+    const lines = normalized
+      .split('\n')
+      .map((line) => this.normalizeDecorativeLabelLine(line));
+    const out: string[] = [];
+    let inFence = false;
+
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i].replace(/[ \t]+$/g, '');
+      const prev = out.length > 0 ? out[out.length - 1] : null;
+      const next = i + 1 < lines.length ? lines[i + 1].trim() : '';
+      const trimmed = line.trim();
+      const isFence = trimmed.startsWith('```');
+      const isTableRow = /^\|.*\|$/.test(trimmed);
+      const isBullet = /^[-*]\s+/.test(trimmed);
+      const isNumberedItem = /^\d+\.\s+/.test(trimmed);
+      const isHeading = /^#{1,6}\s+/.test(trimmed);
+      const prevIsTableRow = prev ? /^\|.*\|$/.test(prev.trim()) : false;
+      const nextIsTableRow = /^\|.*\|$/.test(next);
+
+      if (isFence) {
+        if (!inFence && prev && prev.trim() !== '') {
+          out.push('');
+        }
+        out.push(line);
+        if (inFence && next) {
+          out.push('');
+        }
+        inFence = !inFence;
+        continue;
+      }
+
+      if (inFence) {
+        out.push(line);
+        continue;
+      }
+
+      if (isHeading && prev && prev.trim() !== '') {
+        out.push('');
+      }
+
+      if (isTableRow && !prevIsTableRow && prev && prev.trim() !== '') {
+        out.push('');
+      }
+
+      if (
+        (isBullet || isNumberedItem) &&
+        prev &&
+        prev.trim() !== '' &&
+        !/^\s*$/.test(prev)
+      ) {
+        const prevTrimmed = prev.trim();
+        if (
+          !prevTrimmed.startsWith('- ') &&
+          !prevTrimmed.startsWith('* ') &&
+          !/^\d+\.\s+/.test(prevTrimmed) &&
+          !prevTrimmed.startsWith('|') &&
+          !prevTrimmed.startsWith('```') &&
+          !prevTrimmed.startsWith('#')
+        ) {
+          out.push('');
+        }
+      }
+
+      out.push(line);
+
+      if (isHeading && next && !next.startsWith('#') && next !== '```') {
+        out.push('');
+      }
+
+      if (isTableRow && !nextIsTableRow && next && next !== '```') {
+        out.push('');
+      }
+    }
+
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  private normalizeDecorativeLabelLine(line: string): string {
+    const trimmed = line.trim();
+    if (trimmed === '') {
+      return '';
+    }
+
+    const bulletInlineLabel = line.match(
+      /^(\s*[-*]\s+)\*\*([^*]+?)\*\*[:：]?\s+(.+)$/,
+    );
+    if (bulletInlineLabel?.[1] && bulletInlineLabel?.[2] && bulletInlineLabel?.[3]) {
+      const prefix = bulletInlineLabel[1];
+      const label = bulletInlineLabel[2].replace(/[:：]\s*$/, '').trim();
+      const rest = bulletInlineLabel[3].trim();
+      return `${prefix}${label}：${rest}`;
+    }
+
+    const bulletStandaloneLabel = line.match(/^\s*([-*]\s+)\*\*([^*]+?)\*\*[:：]?$/);
+    if (bulletStandaloneLabel?.[1] && bulletStandaloneLabel?.[2]) {
+      const prefix = bulletStandaloneLabel[1];
+      const label = bulletStandaloneLabel[2].replace(/[:：]\s*$/, '').trim();
+      return `${prefix}${label}`;
+    }
+
+    const standaloneLabel = trimmed.match(/^\*\*([^*]+?)\*\*[:：]?$/);
+    if (standaloneLabel?.[1]) {
+      return `### ${standaloneLabel[1].replace(/[:：]\s*$/, '').trim()}`;
+    }
+
+    const inlineLabel = trimmed.match(/^\*\*([^*]+?)\*\*[:：]?\s+(.+)$/);
+    if (inlineLabel?.[1] && inlineLabel?.[2]) {
+      const label = inlineLabel[1].replace(/[:：]\s*$/, '').trim();
+      const rest = inlineLabel[2].trim();
+      return `${label}：${rest}`;
+    }
+
+    return line;
+  }
+
+  private buildResolvedSnapshot(input: {
+    identity: AnalyzeIdentity;
+    market: PriceSnapshot;
+    technical: TechnicalSnapshot;
+    timeWindow: '24h' | '7d' | '30d' | '60d';
+    responseMode: InstantResponseMode;
+    news: NewsSnapshot | null;
+    fundamentals: FundamentalsSnapshot | null;
+  }): string {
     const lines = [
       'Asset resolution: resolved',
-      `Symbol: ${identity.symbol}`,
-      `Chain: ${identity.chain}`,
-      `Token address: ${identity.tokenAddress || 'n/a'}`,
-      `Source ID: ${identity.sourceId}`,
+      `Symbol: ${input.identity.symbol}`,
+      `Chain: ${input.identity.chain}`,
+      `Token address: ${input.identity.tokenAddress || 'n/a'}`,
+      `Source ID: ${input.identity.sourceId}`,
+      `Response mode: ${input.responseMode}`,
       'Market snapshot:',
-      `- Price USD: ${this.formatNumber(market.priceUsd)}`,
-      `- Change 24h pct: ${this.formatSignedNumber(market.change24hPct)}`,
-      `- Change 7d pct: ${this.formatSignedNumber(market.change7dPct)}`,
-      `- Volume 24h USD: ${this.formatNumber(market.totalVolume24hUsd)}`,
-      `- Market cap USD: ${this.formatNumber(market.marketCapUsd)}`,
-      `- ATH USD: ${this.formatNumber(market.athUsd)}`,
-      `- ATL USD: ${this.formatNumber(market.atlUsd)}`,
-      `- Market as of: ${market.asOf}`,
-      `Technical snapshot (${timeWindow} view):`,
-      `- RSI14: ${this.formatNumber(technical.rsi.value)}`,
-      `- MACD: ${this.formatNumber(technical.macd.macd)}`,
-      `- MACD signal line: ${this.formatNumber(technical.macd.signalLine)}`,
-      `- MACD histogram: ${this.formatNumber(technical.macd.histogram)}`,
-      `- MA7: ${this.formatNumber(technical.ma.ma7)}`,
-      `- MA25: ${this.formatNumber(technical.ma.ma25)}`,
-      `- MA99: ${this.formatNumber(technical.ma.ma99)}`,
-      `- Bollinger upper: ${this.formatNumber(technical.boll.upper)}`,
-      `- Bollinger middle: ${this.formatNumber(technical.boll.middle)}`,
-      `- Bollinger lower: ${this.formatNumber(technical.boll.lower)}`,
-      `- Swing high: ${this.formatNumber(technical.swingHigh)}`,
-      `- Swing low: ${this.formatNumber(technical.swingLow)}`,
-      `- Technical summary signal: ${technical.summarySignal}`,
-      `- Technical as of: ${technical.asOf}`,
+      `- Price USD: ${this.formatNumber(input.market.priceUsd)}`,
+      `- Change 24h pct: ${this.formatSignedNumber(input.market.change24hPct)}`,
+      `- Change 7d pct: ${this.formatSignedNumber(input.market.change7dPct)}`,
+      `- Change 30d pct: ${this.formatSignedNumber(input.market.change30dPct)}`,
+      `- Volume 24h USD: ${this.formatNumber(input.market.totalVolume24hUsd)}`,
+      `- Market cap USD: ${this.formatNumber(input.market.marketCapUsd)}`,
+      `- Market cap rank: ${this.formatNumber(input.market.marketCapRank)}`,
+      `- ATH USD: ${this.formatNumber(input.market.athUsd)}`,
+      `- ATL USD: ${this.formatNumber(input.market.atlUsd)}`,
+      `- Market as of: ${input.market.asOf}`,
+      `Technical snapshot (${input.timeWindow} view):`,
+      `- RSI14: ${this.formatNumber(input.technical.rsi.value)}`,
+      `- MACD: ${this.formatNumber(input.technical.macd.macd)}`,
+      `- MACD signal line: ${this.formatNumber(input.technical.macd.signalLine)}`,
+      `- MACD histogram: ${this.formatNumber(input.technical.macd.histogram)}`,
+      `- MA7: ${this.formatNumber(input.technical.ma.ma7)}`,
+      `- MA25: ${this.formatNumber(input.technical.ma.ma25)}`,
+      `- MA99: ${this.formatNumber(input.technical.ma.ma99)}`,
+      `- Bollinger upper: ${this.formatNumber(input.technical.boll.upper)}`,
+      `- Bollinger middle: ${this.formatNumber(input.technical.boll.middle)}`,
+      `- Bollinger lower: ${this.formatNumber(input.technical.boll.lower)}`,
+      `- Swing high: ${this.formatNumber(input.technical.swingHigh)}`,
+      `- Swing low: ${this.formatNumber(input.technical.swingLow)}`,
+      `- Technical summary signal: ${input.technical.summarySignal}`,
+      `- Technical as of: ${input.technical.asOf}`,
+      'Mini visual candidates:',
+      `- Level map anchor: swingLow=${this.formatNumber(input.technical.swingLow)} | price=${this.formatNumber(input.market.priceUsd)} | swingHigh=${this.formatNumber(input.technical.swingHigh)}`,
+      `- Trend ladder: MA25=${this.formatNumber(input.technical.ma.ma25)} | MA7=${this.formatNumber(input.technical.ma.ma7)} | price=${this.formatNumber(input.market.priceUsd)}`,
       'Support/resistance guidance:',
       '- Prefer Bollinger, MA, swing high, and swing low as candidate levels only when numeric values exist.',
     ];
 
+    const newsLines = this.buildNewsSnapshotLines(input.news);
+    if (newsLines.length > 0) {
+      lines.push('Recent external evidence:', ...newsLines);
+    }
+
+    const fundamentalsLines = this.buildFundamentalsSnapshotLines(
+      input.fundamentals,
+    );
+    if (fundamentalsLines.length > 0) {
+      lines.push('Fundamentals snapshot:', ...fundamentalsLines);
+    }
+
     return lines.join('\n');
+  }
+
+  private buildNewsSnapshotLines(snapshot: NewsSnapshot | null): string[] {
+    if (!snapshot || snapshot.degraded || snapshot.items.length === 0) {
+      return [];
+    }
+
+    return snapshot.items.slice(0, 3).map((item) => {
+      const date = item.publishedAt.slice(0, 10);
+      return `- ${date} | ${item.source} | ${item.title}`;
+    });
+  }
+
+  private buildFundamentalsSnapshotLines(
+    snapshot: FundamentalsSnapshot | null,
+  ): string[] {
+    if (!snapshot || snapshot.degraded) {
+      return [];
+    }
+
+    const lines: string[] = [];
+    if (snapshot.profile.oneLiner) {
+      lines.push(`- One-liner: ${snapshot.profile.oneLiner}`);
+    }
+    if (snapshot.profile.totalFundingUsd !== null) {
+      lines.push(
+        `- Total funding USD: ${this.formatNumber(snapshot.profile.totalFundingUsd)}`,
+      );
+    }
+    if (snapshot.investors.length > 0) {
+      lines.push(
+        `- Named investors: ${snapshot.investors
+          .slice(0, 3)
+          .map((item) => item.name)
+          .join(', ')}`,
+      );
+    }
+    if (snapshot.fundraising.length > 0) {
+      const latest = snapshot.fundraising[0];
+      lines.push(
+        `- Latest fundraising: ${latest.round ?? 'unknown'} | ${this.formatNumber(latest.amountUsd)} | ${latest.publishedAt ?? 'date unavailable'}`,
+      );
+    }
+    const ecosystemHooks = [
+      ...snapshot.ecosystems.onMainNet,
+      ...snapshot.ecosystems.planToLaunch,
+      ...snapshot.ecosystems.ecosystems,
+    ].filter(Boolean);
+    if (ecosystemHooks.length > 0) {
+      lines.push(
+        `- Ecosystem hooks: ${ecosystemHooks.slice(0, 3).join(', ')}`,
+      );
+    }
+    if (snapshot.social.followers !== null) {
+      lines.push(
+        `- Social followers: ${this.formatNumber(snapshot.social.followers)}`,
+      );
+    }
+
+    return lines;
   }
 
   private buildAmbiguousSnapshot(candidates: AnalyzeCandidate[]): string {

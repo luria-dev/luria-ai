@@ -368,7 +368,7 @@ export class AnalyzeOrchestratorService implements OnModuleDestroy {
       nextAction: 'run_pipeline',
       message: this.localize(
         lang,
-        '快问快答请求已受理���正在生成回答。',
+        '快问快答请求已受理，正在生成回答。',
         'Instant request accepted. Generating a quick answer.',
       ),
       payload: {
